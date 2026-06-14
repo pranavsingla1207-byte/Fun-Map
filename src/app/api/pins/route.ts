@@ -42,17 +42,34 @@ export async function GET() {
     const user = await requireUser();
     const supabase = supabaseAdmin();
 
-    const { data: friendships, error: friendshipError } = await supabase
-      .from("friendships")
-      .select("friend_id")
-      .eq("user_id", user.id);
-    if (friendshipError) throw friendshipError;
+    const [
+      { data: outgoingFriendships, error: outgoingFriendshipError },
+      { data: incomingFriendships, error: incomingFriendshipError },
+      { data: acceptedRequests, error: acceptedRequestError },
+      { data: participantPins, error: participantPinsError },
+    ] = await Promise.all([
+      supabase.from("friendships").select("friend_id").eq("user_id", user.id),
+      supabase.from("friendships").select("user_id").eq("friend_id", user.id),
+      supabase.from("friend_requests").select("requester_id, recipient_id").eq("status", "accepted").or(`requester_id.eq.${user.id},recipient_id.eq.${user.id}`),
+      supabase.from("drink_pin_participants").select("pin_id").eq("user_id", user.id),
+    ]);
+    if (outgoingFriendshipError) throw outgoingFriendshipError;
+    if (incomingFriendshipError) throw incomingFriendshipError;
+    if (acceptedRequestError) throw acceptedRequestError;
+    if (participantPinsError) throw participantPinsError;
 
-    const visibleCreatorIds = [user.id, ...((friendships ?? []) as { friend_id: string }[]).map((friend) => friend.friend_id)];
+    const friendIds = new Set<string>([user.id]);
+    for (const row of (outgoingFriendships ?? []) as { friend_id: string }[]) friendIds.add(row.friend_id);
+    for (const row of (incomingFriendships ?? []) as { user_id: string }[]) friendIds.add(row.user_id);
+    for (const row of (acceptedRequests ?? []) as { requester_id: string; recipient_id: string }[]) {
+      friendIds.add(row.requester_id === user.id ? row.recipient_id : row.requester_id);
+    }
+    const participantPinIds = ((participantPins ?? []) as { pin_id: string }[]).map((row) => row.pin_id);
+
     const { data, error } = await supabase
       .from("drink_pins")
       .select("id, creator_id, latitude, longitude, place_label, pin_type, activity_type, activity_other_label, created_at")
-      .in("creator_id", visibleCreatorIds)
+      .or(`creator_id.in.(${Array.from(friendIds).join(",")})${participantPinIds.length ? `,id.in.(${participantPinIds.join(",")})` : ""}`)
       .order("created_at", { ascending: false });
     if (error) throw error;
 

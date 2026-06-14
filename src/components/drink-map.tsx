@@ -1,7 +1,8 @@
 "use client";
 
 import { DivIcon, Icon, LatLngExpression } from "leaflet";
-import { MapContainer, Marker, Popup, TileLayer, useMapEvents } from "react-leaflet";
+import { useEffect } from "react";
+import { MapContainer, Marker, Popup, TileLayer, useMap, useMapEvents } from "react-leaflet";
 
 type Friend = { id: string; username: string };
 type Pin = {
@@ -70,6 +71,22 @@ function Picker({ onSelect }: { onSelect: (point: Point) => void }) {
   return null;
 }
 
+function RecenterMap({ currentLocation, fallbackPin }: { currentLocation: Point | null; fallbackPin: Pin | undefined }) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (currentLocation) {
+      map.setView([currentLocation.latitude, currentLocation.longitude], Math.max(map.getZoom(), 14));
+      return;
+    }
+    if (fallbackPin) {
+      map.setView([fallbackPin.latitude, fallbackPin.longitude], map.getZoom());
+    }
+  }, [currentLocation, fallbackPin, map]);
+
+  return null;
+}
+
 export default function DrinkMap({
   pins,
   selected,
@@ -95,6 +112,7 @@ export default function DrinkMap({
   return (
     <MapContainer center={center} zoom={13} className="h-full w-full" scrollWheelZoom>
       <TileLayer attribution='&copy; OpenStreetMap contributors &copy; MapTiler' url={tileUrl} />
+      <RecenterMap currentLocation={currentLocation} fallbackPin={pins[0]} />
       <Picker onSelect={onSelect} />
       {currentLocation && (
         <Marker position={[currentLocation.latitude, currentLocation.longitude]} icon={defaultIcon}>

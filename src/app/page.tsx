@@ -111,6 +111,17 @@ export default function Home() {
   const canSubmitPin = Boolean(pinLocation) && photoDecisionMade && (pinType !== "forgotten" || forgottenRemaining > 0);
   const taggedFriends = useMemo(() => friends.filter((friend) => tagged.includes(friend.id)), [friends, tagged]);
 
+  function requestMapStartLocation() {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setCurrentLocation({ latitude: pos.coords.latitude, longitude: pos.coords.longitude });
+      },
+      () => undefined,
+      { enableHighAccuracy: true, timeout: 15000 },
+    );
+  }
+
   async function refresh() {
     const meData = await api<{ user: User | null }>("/api/me");
     if (!meData.user) {
@@ -129,6 +140,7 @@ export default function Home() {
     setPins(pinsData.pins);
     setStats(statsData);
     setCredits(creditsData);
+    if (!currentLocation) requestMapStartLocation();
   }
 
   useEffect(() => {

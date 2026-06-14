@@ -114,7 +114,9 @@ create table if not exists forgotten_credit_ledger (
   created_at timestamptz not null default now()
 );
 
-create or replace view visible_drink_pins as
+drop view if exists visible_drink_pins;
+
+create view visible_drink_pins as
 select
   viewer.user_id as viewer_id,
   pins.id as pin_id,

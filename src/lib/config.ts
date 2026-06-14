@@ -3,6 +3,9 @@ export const config = {
   supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY ?? "",
   sessionSecret: process.env.SESSION_SECRET ?? "dev-secret-change-me",
   pinPhotoBucket: "pin-photos",
+  profilePhotoBucket: "profile-photos",
+  razorpayKeyId: process.env.RAZORPAY_KEY_ID ?? "",
+  razorpayKeySecret: process.env.RAZORPAY_KEY_SECRET ?? "",
 };
 
 export function assertServerConfig() {

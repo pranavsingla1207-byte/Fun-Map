@@ -11,10 +11,12 @@ const DrinkMap = dynamic(() => import("@/components/drink-map"), {
   loading: () => <div className="flex h-full items-center justify-center text-sm text-slate-500">Loading map...</div>,
 });
 
-type User = { id: string; username: string };
-type Friend = { id: string; username: string };
+type User = { id: string; username: string; profilePhotoUrl?: string | null };
+type Friend = { id: string; username: string; profilePhotoUrl?: string | null };
 type FriendRequest = { id: string; username: string; createdAt: string };
 type Stats = { totalPins: number; uniquePlaces: number; friendTaggedPins: number; forgottenPinsUsedThisWeek: number };
+type CreditBalance = { freeGranted: number; paidGranted: number; consumed: number; remaining: number; periodMonth: string };
+type ActivityType = "hangout" | "party" | "random_drive" | "bunking" | "other";
 type Pin = {
   id: string;
   creatorId: string;
@@ -23,11 +25,37 @@ type Pin = {
   longitude: number;
   placeLabel: string | null;
   pinType: "verified" | "forgotten";
+  activityType: ActivityType;
+  activityOtherLabel: string | null;
   createdAt: string;
   participants: Friend[];
   photoUrl: string | null;
+  creatorProfilePhotoUrl: string | null;
 };
 type SelectedPoint = { latitude: number; longitude: number };
+
+declare global {
+  interface Window {
+    Razorpay?: new (options: {
+      key: string;
+      amount: number;
+      currency: string;
+      name: string;
+      description: string;
+      order_id: string;
+      handler: (response: { razorpay_order_id: string; razorpay_payment_id: string; razorpay_signature: string }) => void;
+      theme: { color: string };
+    }) => { open: () => void };
+  }
+}
+
+const activities: { value: ActivityType; label: string; icon: string }[] = [
+  { value: "hangout", label: "Hangout", icon: "H" },
+  { value: "party", label: "Party", icon: "P" },
+  { value: "random_drive", label: "Random Drive", icon: "D" },
+  { value: "bunking", label: "Bunking", icon: "B" },
+  { value: "other", label: "Other", icon: "*" },
+];
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
@@ -62,19 +90,23 @@ export default function Home() {
   const [requests, setRequests] = useState<FriendRequest[]>([]);
   const [pins, setPins] = useState<Pin[]>([]);
   const [stats, setStats] = useState<Stats>({ totalPins: 0, uniquePlaces: 0, friendTaggedPins: 0, forgottenPinsUsedThisWeek: 0 });
+  const [credits, setCredits] = useState<CreditBalance>({ freeGranted: 2, paidGranted: 0, consumed: 0, remaining: 2, periodMonth: "" });
   const [message, setMessage] = useState("");
   const [selected, setSelected] = useState<SelectedPoint | null>(null);
   const [currentLocation, setCurrentLocation] = useState<SelectedPoint | null>(null);
   const [friendUsername, setFriendUsername] = useState("");
   const [pinType, setPinType] = useState<"verified" | "forgotten">("verified");
   const [placeLabel, setPlaceLabel] = useState("");
+  const [activityType, setActivityType] = useState<ActivityType>("hangout");
+  const [activityOtherLabel, setActivityOtherLabel] = useState("");
   const [tagged, setTagged] = useState<string[]>([]);
   const [photoDataUrl, setPhotoDataUrl] = useState<string | null>(null);
+  const [photoDecisionMade, setPhotoDecisionMade] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  const forgottenRemaining = Math.max(0, 2 - stats.forgottenPinsUsedThisWeek);
+  const forgottenRemaining = credits.remaining;
   const pinLocation = pinType === "verified" ? currentLocation : selected;
-  const canSubmitPin = Boolean(pinLocation);
+  const canSubmitPin = Boolean(pinLocation) && photoDecisionMade && (pinType !== "forgotten" || forgottenRemaining > 0);
   const taggedFriends = useMemo(() => friends.filter((friend) => tagged.includes(friend.id)), [friends, tagged]);
 
   async function refresh() {
@@ -83,16 +115,18 @@ export default function Home() {
       setMe(null);
       return;
     }
-    const [friendsData, pinsData, statsData] = await Promise.all([
+    const [friendsData, pinsData, statsData, creditsData] = await Promise.all([
       api<{ friends: Friend[]; incomingRequests: FriendRequest[] }>("/api/friends"),
       api<{ pins: Pin[] }>("/api/pins"),
       api<Stats>("/api/stats"),
+      api<CreditBalance>("/api/credits"),
     ]);
     setMe(meData.user);
     setFriends(friendsData.friends);
     setRequests(friendsData.incomingRequests);
     setPins(pinsData.pins);
     setStats(statsData);
+    setCredits(creditsData);
   }
 
   useEffect(() => {
@@ -120,6 +154,12 @@ export default function Home() {
       },
       { enableHighAccuracy: true, timeout: 15000 },
     );
+  }
+
+  function resetPinDraft(nextPinType?: "verified" | "forgotten") {
+    if (nextPinType) setPinType(nextPinType);
+    setPhotoDecisionMade(false);
+    setPhotoDataUrl(null);
   }
 
   async function submitAuth(event: FormEvent) {
@@ -178,6 +218,10 @@ export default function Home() {
       if (pinType === "verified") await requestCurrentLocation();
       return;
     }
+    if (!photoDecisionMade) {
+      setMessage(pinType === "verified" ? "Take a camera photo or continue without one." : "Attach a photo or continue without one.");
+      return;
+    }
     setBusy(true);
     setMessage("");
     try {
@@ -188,6 +232,8 @@ export default function Home() {
           longitude: location.longitude,
           placeLabel: placeLabel.trim() || null,
           pinType,
+          activityType,
+          activityOtherLabel: activityOtherLabel.trim() || null,
           currentLatitude: pinType === "verified" ? location.latitude : currentLocation?.latitude,
           currentLongitude: pinType === "verified" ? location.longitude : currentLocation?.longitude,
           participantIds: tagged,
@@ -196,8 +242,11 @@ export default function Home() {
       });
       setSelected(null);
       setPlaceLabel("");
+      setActivityType("hangout");
+      setActivityOtherLabel("");
       setTagged([]);
       setPhotoDataUrl(null);
+      setPhotoDecisionMade(false);
       await refresh();
       setMessage("Pin dropped. Bragging rights updated.");
     } catch (error) {
@@ -212,11 +261,79 @@ export default function Home() {
     setBusy(true);
     try {
       setPhotoDataUrl(await fileToDataUrl(file));
+      setPhotoDecisionMade(true);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not attach photo");
     } finally {
       setBusy(false);
     }
+  }
+
+  async function handleProfilePhoto(file: File | undefined) {
+    if (!file || !me) return;
+    setBusy(true);
+    try {
+      const photoDataUrl = await fileToDataUrl(file);
+      const data = await api<{ profilePhotoUrl: string | null }>("/api/profile/photo", {
+        method: "POST",
+        body: JSON.stringify({ photoDataUrl }),
+      });
+      setMe({ ...me, profilePhotoUrl: data.profilePhotoUrl });
+      await refresh();
+      setMessage("Profile photo updated.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not update profile photo");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function loadRazorpay() {
+    if (window.Razorpay) return;
+    await new Promise<void>((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = "https://checkout.razorpay.com/v1/checkout.js";
+      script.onload = () => resolve();
+      script.onerror = () => reject(new Error("Could not load Razorpay checkout"));
+      document.body.appendChild(script);
+    });
+  }
+
+  async function buyCredits() {
+    setBusy(true);
+    setMessage("");
+    try {
+      await loadRazorpay();
+      const order = await api<{ orderId: string; amount: number; currency: string; keyId: string }>("/api/payments/razorpay/order", { method: "POST" });
+      if (!window.Razorpay || !order.keyId) throw new Error("Razorpay is not configured yet");
+      const checkout = new window.Razorpay({
+        key: order.keyId,
+        amount: order.amount,
+        currency: order.currency,
+        name: "Fun Map",
+        description: "10 forgotten pin credits",
+        order_id: order.orderId,
+        handler: async (response) => {
+          await api("/api/payments/razorpay/verify", { method: "POST", body: JSON.stringify(response) });
+          await refresh();
+          setMessage("Payment verified. 10 forgotten pins added.");
+        },
+        theme: { color: "#047857" },
+      });
+      checkout.open();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not start payment");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function avatar(user: { username: string; profilePhotoUrl?: string | null }, size = "h-9 w-9") {
+    return user.profilePhotoUrl ? (
+      <img src={user.profilePhotoUrl} alt={`@${user.username}`} className={clsx(size, "rounded-full object-cover")} />
+    ) : (
+      <span className={clsx(size, "grid place-items-center rounded-full bg-emerald-700 text-sm font-black uppercase text-white")}>{user.username.charAt(0)}</span>
+    );
   }
 
   if (!me) {
@@ -253,7 +370,13 @@ export default function Home() {
         <div className="mx-auto flex max-w-6xl items-center justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-700">Fun Map</p>
-            <h1 className="text-lg font-black">@{me.username}</h1>
+            <div className="mt-1 flex items-center gap-2">
+              <label className="cursor-pointer" title="Upload profile photo">
+                {avatar(me)}
+                <input type="file" accept="image/*" className="hidden" onChange={(e) => handleProfilePhoto(e.target.files?.[0])} />
+              </label>
+              <h1 className="text-lg font-black">@{me.username}</h1>
+            </div>
           </div>
           <button onClick={logout} className="inline-flex items-center gap-2 rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold">
             <LogOut size={16} /> Log out
@@ -271,11 +394,11 @@ export default function Home() {
             <h2 className="flex items-center gap-2 text-base font-black"><MapPin size={18} /> Drop a pin</h2>
             <form onSubmit={submitPin} className="mt-4 space-y-3">
               <div className="grid grid-cols-2 gap-2">
-                <button type="button" onClick={() => setPinType("verified")} className={clsx("rounded-md border px-3 py-2 text-sm font-bold", pinType === "verified" ? "border-emerald-700 bg-emerald-50 text-emerald-800" : "border-slate-300")}>GPS verified</button>
-                <button type="button" onClick={() => setPinType("forgotten")} className={clsx("rounded-md border px-3 py-2 text-sm font-bold", pinType === "forgotten" ? "border-amber-600 bg-amber-50 text-amber-800" : "border-slate-300")}>Forgotten</button>
+                <button type="button" onClick={() => resetPinDraft("verified")} className={clsx("rounded-md border px-3 py-2 text-sm font-bold", pinType === "verified" ? "border-emerald-700 bg-emerald-50 text-emerald-800" : "border-slate-300")}>GPS verified</button>
+                <button type="button" onClick={() => resetPinDraft("forgotten")} className={clsx("rounded-md border px-3 py-2 text-sm font-bold", pinType === "forgotten" ? "border-amber-600 bg-amber-50 text-amber-800" : "border-slate-300")}>Forgotten</button>
               </div>
               <p className="text-xs text-slate-500">
-                {pinType === "forgotten" ? `${forgottenRemaining} forgotten pins left this week. Extra pins will be Rs 10 later.` : "GPS verified pins use your current browser location directly."}
+                {pinType === "forgotten" ? `${forgottenRemaining} forgotten pins left this month. Buy 10 more for Rs 10.` : "GPS verified pins use your current browser location directly."}
               </p>
               {pinType === "verified" && (
                 <button type="button" onClick={requestCurrentLocation} disabled={busy} className="w-full rounded-md border border-emerald-700 bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-800 disabled:opacity-60">
@@ -283,6 +406,21 @@ export default function Home() {
                 </button>
               )}
               <input value={placeLabel} onChange={(e) => setPlaceLabel(e.target.value)} placeholder="Place label, optional" className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
+              <div className="grid grid-cols-2 gap-2">
+                {activities.map((activity) => (
+                  <button
+                    type="button"
+                    key={activity.value}
+                    onClick={() => setActivityType(activity.value)}
+                    className={clsx("rounded-md border px-3 py-2 text-xs font-bold", activityType === activity.value ? "border-slate-950 bg-slate-950 text-white" : "border-slate-300")}
+                  >
+                    <span className="mr-1">{activity.icon}</span>{activity.label}
+                  </button>
+                ))}
+              </div>
+              {activityType === "other" && (
+                <input value={activityOtherLabel} onChange={(e) => setActivityOtherLabel(e.target.value)} placeholder="Other activity label" className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
+              )}
               <div className="flex flex-wrap gap-2">
                 {friends.map((friend) => (
                   <button
@@ -296,9 +434,14 @@ export default function Home() {
                 ))}
               </div>
               <label className="flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed border-slate-300 px-3 py-3 text-sm font-semibold text-slate-600">
-                <Camera size={18} /> {photoDataUrl ? "Replace photo" : "Attach photo"}
+                <Camera size={18} /> {photoDataUrl ? "Replace photo" : pinType === "verified" ? "Take photo" : "Attach photo"}
                 <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => handlePhoto(e.target.files?.[0])} />
               </label>
+              {pinLocation && !photoDecisionMade && (
+                <button type="button" onClick={() => setPhotoDecisionMade(true)} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-bold text-slate-700">
+                  Continue without pic
+                </button>
+              )}
               {photoDataUrl && (
                 <div className="relative overflow-hidden rounded-md">
                   <img src={photoDataUrl} alt="Pin preview" className="h-36 w-full object-cover" />
@@ -308,6 +451,11 @@ export default function Home() {
               <button disabled={busy || !canSubmitPin} className="w-full rounded-md bg-slate-950 px-4 py-3 font-bold text-white disabled:opacity-50">
                 {pinType === "verified" ? (currentLocation ? "Create GPS pin here" : "Allow location first") : selected ? "Create forgotten pin" : "Tap map to choose forgotten spot"}
               </button>
+              {pinType === "forgotten" && forgottenRemaining <= 0 && (
+                <button type="button" onClick={buyCredits} disabled={busy} className="w-full rounded-md bg-amber-500 px-4 py-3 font-black text-slate-950 disabled:opacity-60">
+                  Buy 10 forgotten pins for Rs 10
+                </button>
+              )}
             </form>
           </section>
 
@@ -316,7 +464,7 @@ export default function Home() {
               ["Pins", stats.totalPins],
               ["Places", stats.uniquePlaces],
               ["With friends", stats.friendTaggedPins],
-              ["Forgotten used", `${stats.forgottenPinsUsedThisWeek}/2`],
+              ["Forgotten left", credits.remaining],
             ].map(([label, value]) => (
               <div key={label} className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
                 <p className="text-xs font-semibold text-slate-500">{label}</p>
@@ -341,7 +489,7 @@ export default function Home() {
                   </span>
                 </div>
               ))}
-              {friends.map((friend) => <p key={friend.id} className="rounded-md bg-slate-50 px-3 py-2 text-sm font-semibold">@{friend.username}</p>)}
+              {friends.map((friend) => <p key={friend.id} className="flex items-center gap-2 rounded-md bg-slate-50 px-3 py-2 text-sm font-semibold">{avatar(friend, "h-7 w-7")} @{friend.username}</p>)}
               {!friends.length && !requests.length && <p className="text-sm text-slate-500">No friends yet. Add one by username.</p>}
             </div>
           </section>

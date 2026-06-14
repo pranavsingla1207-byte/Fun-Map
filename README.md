@@ -6,12 +6,15 @@ Mobile-first web app for adding friends, dropping drinking pins, attaching optio
 
 1. Create a Supabase project.
 2. Run `supabase/schema.sql` in the Supabase SQL editor.
-3. Create a private Supabase Storage bucket named `pin-photos`.
+3. Create private Supabase Storage buckets named `pin-photos` and `profile-photos`.
 4. Copy `.env.example` to `.env.local` and fill in:
    - `SUPABASE_URL`
    - `SUPABASE_SERVICE_ROLE_KEY`
    - `SESSION_SECRET`
    - `NEXT_PUBLIC_MAPTILER_API_KEY`
+   - `RAZORPAY_KEY_ID`
+   - `RAZORPAY_KEY_SECRET`
+   - `NEXT_PUBLIC_RAZORPAY_KEY_ID`
 5. Run `npm run dev`.
 
 ## Features
@@ -22,6 +25,9 @@ Mobile-first web app for adding friends, dropping drinking pins, attaching optio
 - Forgotten pins limited to 2 per week in Asia/Kolkata time.
 - Optional compressed pin photos stored in private Supabase Storage.
 - Friend-only visibility for pins and signed photo URLs.
+- Profile photos with username initials as fallback.
+- Activity badges on pins: Hangout, Party, Random Drive, Bunking, or Other.
+- Monthly forgotten-pin credits with Razorpay test-mode top-ups.
 
 ## Scripts
 

@@ -13,3 +13,13 @@ export function getKolkataWeekStart(now = new Date()) {
   date.setUTCDate(date.getUTCDate() + mondayOffset);
   return date.toISOString();
 }
+
+export function getKolkataMonthKey(now = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+  }).formatToParts(now);
+  const value = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
+  return `${value("year")}-${value("month")}`;
+}

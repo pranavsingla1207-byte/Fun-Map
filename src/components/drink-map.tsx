@@ -7,10 +7,13 @@ type Friend = { id: string; username: string };
 type Pin = {
   id: string;
   creatorUsername: string;
+  creatorProfilePhotoUrl: string | null;
   latitude: number;
   longitude: number;
   placeLabel: string | null;
   pinType: "verified" | "forgotten";
+  activityType: "hangout" | "party" | "random_drive" | "bunking" | "other";
+  activityOtherLabel: string | null;
   createdAt: string;
   participants: Friend[];
   photoUrl: string | null;
@@ -26,19 +29,34 @@ const defaultIcon = new Icon({
 });
 
 const markerColors = ["#047857", "#2563eb", "#c2410c", "#7c3aed", "#be123c", "#0f766e", "#a16207"];
+const activityMeta = {
+  hangout: { label: "Hangout", icon: "H" },
+  party: { label: "Party", icon: "P" },
+  random_drive: { label: "Random Drive", icon: "D" },
+  bunking: { label: "Bunking", icon: "B" },
+  other: { label: "Other", icon: "*" },
+};
 
 function colorForUsername(username: string) {
   const sum = username.split("").reduce((total, char) => total + char.charCodeAt(0), 0);
   return markerColors[sum % markerColors.length];
 }
 
-function initialIcon(username: string) {
+function initialIcon(pin: Pin) {
+  const username = pin.creatorUsername;
   const initial = username.charAt(0).toUpperCase() || "?";
   const color = colorForUsername(username);
+  const activity = activityMeta[pin.activityType] ?? activityMeta.hangout;
+  const avatarHtml = pin.creatorProfilePhotoUrl
+    ? `<img src="${pin.creatorProfilePhotoUrl}" alt="" style="width:100%;height:100%;border-radius:999px;object-fit:cover;" />`
+    : initial;
   return new DivIcon({
     className: "",
-    html: `<div style="width:34px;height:34px;border-radius:999px;display:grid;place-items:center;background:${color};color:white;border:3px solid white;box-shadow:0 8px 18px rgba(15,23,42,.25);font:800 15px/1 system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">${initial}</div>`,
-    iconSize: [34, 34],
+    html: `<div style="position:relative;width:40px;height:40px;">
+      <div style="width:34px;height:34px;border-radius:999px;display:grid;place-items:center;background:${color};color:white;border:3px solid white;box-shadow:0 8px 18px rgba(15,23,42,.25);font:800 15px/1 system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;overflow:hidden;">${avatarHtml}</div>
+      <div style="position:absolute;right:0;bottom:0;width:18px;height:18px;border-radius:999px;display:grid;place-items:center;background:#f59e0b;color:#111827;border:2px solid white;font:900 10px/1 system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">${activity.icon}</div>
+    </div>`,
+    iconSize: [40, 40],
     iconAnchor: [17, 17],
   });
 }
@@ -89,12 +107,15 @@ export default function DrinkMap({
         </Marker>
       )}
       {pins.map((pin) => (
-        <Marker key={pin.id} position={[pin.latitude, pin.longitude]} icon={initialIcon(pin.creatorUsername)}>
+        <Marker key={pin.id} position={[pin.latitude, pin.longitude]} icon={initialIcon(pin)}>
           <Popup>
             <div className="w-48">
               {pin.photoUrl && <img src={pin.photoUrl} alt="Pin proof" className="mb-2 h-28 w-full rounded object-cover" />}
               <p className="font-bold">{pin.placeLabel || "Unnamed spot"}</p>
               <p className="text-xs text-slate-600">By @{pin.creatorUsername} - {pin.pinType}</p>
+              <p className="mt-1 text-xs font-bold text-amber-700">
+                {activityMeta[pin.activityType]?.label ?? "Hangout"}{pin.activityType === "other" && pin.activityOtherLabel ? `: ${pin.activityOtherLabel}` : ""}
+              </p>
               {pin.participants.length > 0 && <p className="mt-1 text-xs">With {pin.participants.map((p) => `@${p.username}`).join(", ")}</p>}
             </div>
           </Popup>

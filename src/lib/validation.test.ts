@@ -11,9 +11,11 @@ describe("validation", () => {
       latitude: 12,
       longitude: 77,
       pinType: "forgotten",
+      activityType: "party",
       participantIds: [],
     });
     expect(pin.pinType).toBe("forgotten");
+    expect(pin.activityType).toBe("party");
   });
 
   it("rejects weak account payloads", () => {

@@ -1,9 +1,10 @@
 import { fail, ok } from "@/lib/api";
 import { requireUser } from "@/lib/auth";
 import { config } from "@/lib/config";
+import { consumeForgottenCredit, getForgottenCreditBalance } from "@/lib/credits";
 import { distanceMeters } from "@/lib/geo";
+import { decodeImageDataUrl } from "@/lib/images";
 import { supabaseAdmin } from "@/lib/supabase";
-import { getKolkataWeekStart } from "@/lib/time";
 import { pinSchema } from "@/lib/validation";
 
 export const runtime = "nodejs";
@@ -15,12 +16,15 @@ type VisiblePinRow = {
   longitude: number;
   place_label: string | null;
   pin_type: "verified" | "forgotten";
+  activity_type: "hangout" | "party" | "random_drive" | "bunking" | "other";
+  activity_other_label: string | null;
   created_at: string;
 };
 
 type UserRow = {
   id: string;
   username: string;
+  profile_photo_path: string | null;
 };
 
 type PhotoRow = {
@@ -32,12 +36,6 @@ type ParticipantRow = {
   pin_id: string;
   user_id: string;
 };
-
-function decodeDataUrl(dataUrl: string) {
-  const match = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/.exec(dataUrl);
-  if (!match) throw new Error("Invalid image data");
-  return { mimeType: match[1], buffer: Buffer.from(match[2], "base64") };
-}
 
 export async function GET() {
   try {
@@ -53,7 +51,7 @@ export async function GET() {
     const visibleCreatorIds = [user.id, ...((friendships ?? []) as { friend_id: string }[]).map((friend) => friend.friend_id)];
     const { data, error } = await supabase
       .from("drink_pins")
-      .select("id, creator_id, latitude, longitude, place_label, pin_type, created_at")
+      .select("id, creator_id, latitude, longitude, place_label, pin_type, activity_type, activity_other_label, created_at")
       .in("creator_id", visibleCreatorIds)
       .order("created_at", { ascending: false });
     if (error) throw error;
@@ -63,7 +61,7 @@ export async function GET() {
     const creatorIds = Array.from(new Set(rows.map((row) => row.creator_id)));
     const [{ data: creators, error: creatorError }, { data: photos, error: photoError }, { data: participantRows, error: participantError }] = await Promise.all([
       creatorIds.length
-        ? supabase.from("users").select("id, username").in("id", creatorIds)
+        ? supabase.from("users").select("id, username, profile_photo_path").in("id", creatorIds)
         : Promise.resolve({ data: [], error: null }),
       pinIds.length
         ? supabase.from("pin_photos").select("pin_id, storage_path").in("pin_id", pinIds)
@@ -76,7 +74,7 @@ export async function GET() {
     if (photoError) throw photoError;
     if (participantError) throw participantError;
 
-    const creatorById = new Map(((creators ?? []) as unknown as UserRow[]).map((creator) => [creator.id, creator.username]));
+    const creatorById = new Map(((creators ?? []) as unknown as UserRow[]).map((creator) => [creator.id, creator]));
     const photoByPinId = new Map(((photos ?? []) as unknown as PhotoRow[]).map((photo) => [photo.pin_id, photo.storage_path]));
     const participantsByPinId = new Map<string, string[]>();
     for (const participant of (participantRows ?? []) as unknown as ParticipantRow[]) {
@@ -84,30 +82,42 @@ export async function GET() {
     }
     const participantUserIds = Array.from(new Set(Array.from(participantsByPinId.values()).flat()));
     const { data: participantUsers, error: participantUserError } = participantUserIds.length
-      ? await supabase.from("users").select("id, username").in("id", participantUserIds)
+      ? await supabase.from("users").select("id, username, profile_photo_path").in("id", participantUserIds)
       : { data: [], error: null };
     if (participantUserError) throw participantUserError;
-    const participantById = new Map(((participantUsers ?? []) as unknown as UserRow[]).map((participant) => [participant.id, participant.username]));
+    const participantById = new Map(((participantUsers ?? []) as unknown as UserRow[]).map((participant) => [participant.id, participant]));
 
     const pins = await Promise.all(rows.map(async (row) => {
       let photoUrl = null;
+      let creatorProfilePhotoUrl = null;
       const photoPath = photoByPinId.get(row.id);
       if (photoPath) {
         const signed = await supabase.storage.from(config.pinPhotoBucket).createSignedUrl(photoPath, 60 * 10);
         photoUrl = signed.data?.signedUrl ?? null;
       }
+      const creator = creatorById.get(row.creator_id);
+      if (creator?.profile_photo_path) {
+        const signed = await supabase.storage.from(config.profilePhotoBucket).createSignedUrl(creator.profile_photo_path, 60 * 10);
+        creatorProfilePhotoUrl = signed.data?.signedUrl ?? null;
+      }
       return {
         id: row.id,
         creatorId: row.creator_id,
-        creatorUsername: creatorById.get(row.creator_id) ?? "unknown",
+        creatorUsername: creator?.username ?? "unknown",
+        creatorProfilePhotoUrl,
         latitude: row.latitude,
         longitude: row.longitude,
         placeLabel: row.place_label,
         pinType: row.pin_type,
+        activityType: row.activity_type,
+        activityOtherLabel: row.activity_other_label,
         createdAt: row.created_at,
         participants: (participantsByPinId.get(row.id) ?? [])
           .filter((participantId) => participantId !== row.creator_id)
-          .map((participantId) => ({ id: participantId, username: participantById.get(participantId) ?? "unknown" })),
+          .map((participantId) => {
+            const participant = participantById.get(participantId);
+            return { id: participantId, username: participant?.username ?? "unknown" };
+          }),
         photoUrl,
       };
     }));
@@ -134,14 +144,10 @@ export async function POST(request: Request) {
 
     const supabase = supabaseAdmin();
     if (input.pinType === "forgotten") {
-      const { count, error } = await supabase
-        .from("drink_pins")
-        .select("id", { count: "exact", head: true })
-        .eq("creator_id", user.id)
-        .eq("pin_type", "forgotten")
-        .gte("created_at", getKolkataWeekStart());
-      if (error) throw error;
-      if ((count ?? 0) >= 2) throw new Error("Weekly forgotten-pin limit reached. Extra pins will be Rs 10 each soon.");
+      const balance = await getForgottenCreditBalance(user.id);
+      if (balance.remaining <= 0) {
+        throw new Error("No forgotten pins left. Buy 10 more for Rs 10 to continue.");
+      }
     }
 
     if (input.participantIds.length) {
@@ -162,6 +168,8 @@ export async function POST(request: Request) {
         longitude: input.longitude,
         place_label: input.placeLabel,
         pin_type: input.pinType,
+        activity_type: input.activityType,
+        activity_other_label: input.activityType === "other" ? input.activityOtherLabel : null,
       })
       .select("id")
       .single();
@@ -174,8 +182,12 @@ export async function POST(request: Request) {
     const { error: participantsError } = await supabase.from("drink_pin_participants").insert(participants);
     if (participantsError) throw participantsError;
 
+    if (input.pinType === "forgotten") {
+      await consumeForgottenCredit(user.id, pin.id);
+    }
+
     if (input.photoDataUrl) {
-      const { buffer, mimeType } = decodeDataUrl(input.photoDataUrl);
+      const { buffer, mimeType } = decodeImageDataUrl(input.photoDataUrl);
       const ext = mimeType.split("/")[1]?.replace("jpeg", "jpg") ?? "jpg";
       const path = `${user.id}/${pin.id}.${ext}`;
       const upload = await supabase.storage.from(config.pinPhotoBucket).upload(path, buffer, {

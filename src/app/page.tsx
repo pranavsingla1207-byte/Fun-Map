@@ -103,6 +103,7 @@ export default function Home() {
   const [photoDataUrl, setPhotoDataUrl] = useState<string | null>(null);
   const [photoDecisionMade, setPhotoDecisionMade] = useState(false);
   const [showProfileUploadPrompt, setShowProfileUploadPrompt] = useState(false);
+  const [paymentMessage, setPaymentMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const profilePhotoInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -316,10 +317,12 @@ export default function Home() {
   async function buyCredits() {
     setBusy(true);
     setMessage("");
+    setPaymentMessage("Starting Razorpay checkout...");
     try {
       await loadRazorpay();
       const order = await api<{ orderId: string; amount: number; currency: string; keyId: string }>("/api/payments/razorpay/order", { method: "POST" });
-      if (!window.Razorpay || !order.keyId) throw new Error("Razorpay is not configured yet");
+      if (!window.Razorpay) throw new Error("Razorpay checkout could not load. Please try again.");
+      if (!order.keyId) throw new Error("Razorpay key is missing in Vercel environment variables.");
       const checkout = new window.Razorpay({
         key: order.keyId,
         amount: order.amount,
@@ -328,15 +331,16 @@ export default function Home() {
         description: "10 forgotten pin credits",
         order_id: order.orderId,
         handler: async (response) => {
+          setPaymentMessage("Verifying payment...");
           await api("/api/payments/razorpay/verify", { method: "POST", body: JSON.stringify(response) });
           await refresh();
-          setMessage("Payment verified. 10 forgotten pins added.");
+          setPaymentMessage("Payment verified. 10 forgotten pins added.");
         },
         theme: { color: "#047857" },
       });
       checkout.open();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not start payment");
+      setPaymentMessage(error instanceof Error ? error.message : "Could not start payment");
     } finally {
       setBusy(false);
     }
@@ -483,10 +487,16 @@ export default function Home() {
               <button disabled={busy || !canSubmitPin} className="w-full rounded-md bg-slate-950 px-4 py-3 font-bold text-white disabled:opacity-50">
                 {pinType === "verified" ? (currentLocation ? "Create GPS pin here" : "Allow location first") : selected ? "Create forgotten pin" : "Tap map to choose forgotten spot"}
               </button>
-              {pinType === "forgotten" && forgottenRemaining <= 0 && (
-                <button type="button" onClick={buyCredits} disabled={busy} className="w-full rounded-md bg-amber-500 px-4 py-3 font-black text-slate-950 disabled:opacity-60">
-                  Buy 10 forgotten pins for Rs 10
-                </button>
+              {pinType === "forgotten" && (
+                <div className="rounded-md border border-amber-200 bg-amber-50 p-3">
+                  <p className="text-xs font-semibold text-amber-900">
+                    {forgottenRemaining > 0 ? "Want a bigger buffer? You can buy credits before your free pins end." : "No forgotten pins left. Buy credits to continue."}
+                  </p>
+                  <button type="button" onClick={buyCredits} disabled={busy} className="mt-2 w-full rounded-md bg-amber-500 px-4 py-3 font-black text-slate-950 disabled:opacity-60">
+                    {busy ? "Working..." : "Buy 10 forgotten pins for Rs 10"}
+                  </button>
+                  {paymentMessage && <p className="mt-2 text-xs font-semibold text-amber-900">{paymentMessage}</p>}
+                </div>
               )}
             </form>
           </section>

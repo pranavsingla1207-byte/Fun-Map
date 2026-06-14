@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import imageCompression from "browser-image-compression";
 import { Camera, Check, LogOut, MapPin, Plus, UserPlus, X } from "lucide-react";
 import { clsx } from "clsx";
@@ -102,7 +102,9 @@ export default function Home() {
   const [tagged, setTagged] = useState<string[]>([]);
   const [photoDataUrl, setPhotoDataUrl] = useState<string | null>(null);
   const [photoDecisionMade, setPhotoDecisionMade] = useState(false);
+  const [showProfileUploadPrompt, setShowProfileUploadPrompt] = useState(false);
   const [busy, setBusy] = useState(false);
+  const profilePhotoInputRef = useRef<HTMLInputElement | null>(null);
 
   const forgottenRemaining = credits.remaining;
   const pinLocation = pinType === "verified" ? currentLocation : selected;
@@ -370,11 +372,29 @@ export default function Home() {
         <div className="mx-auto flex max-w-6xl items-center justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-700">Fun Map</p>
-            <div className="mt-1 flex items-center gap-2">
-              <label className="cursor-pointer" title="Upload profile photo">
+            <div className="relative mt-1 flex items-center gap-2">
+              <button type="button" onClick={() => setShowProfileUploadPrompt((value) => !value)} className="rounded-full outline-none focus:ring-2 focus:ring-emerald-700" title="Profile photo options">
                 {avatar(me)}
-                <input type="file" accept="image/*" className="hidden" onChange={(e) => handleProfilePhoto(e.target.files?.[0])} />
-              </label>
+              </button>
+              <input ref={profilePhotoInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => handleProfilePhoto(e.target.files?.[0])} />
+              {showProfileUploadPrompt && (
+                <div className="absolute left-0 top-12 z-40 w-56 rounded-lg border border-slate-200 bg-white p-3 shadow-lg">
+                  <p className="text-xs font-semibold text-slate-500">Profile picture</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowProfileUploadPrompt(false);
+                      profilePhotoInputRef.current?.click();
+                    }}
+                    className="mt-2 w-full rounded-md bg-emerald-700 px-3 py-2 text-left text-sm font-bold text-white"
+                  >
+                    Upload profile photo
+                  </button>
+                  <button type="button" onClick={() => setShowProfileUploadPrompt(false)} className="mt-2 w-full rounded-md border border-slate-300 px-3 py-2 text-left text-sm font-semibold">
+                    Cancel
+                  </button>
+                </div>
+              )}
               <h1 className="text-lg font-black">@{me.username}</h1>
             </div>
           </div>

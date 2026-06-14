@@ -17,6 +17,7 @@ type FriendRequest = { id: string; username: string; createdAt: string };
 type Stats = { totalPins: number; uniquePlaces: number; friendTaggedPins: number; forgottenPinsUsedThisWeek: number };
 type CreditBalance = { freeGranted: number; paidGranted: number; consumed: number; remaining: number; periodMonth: string };
 type ActivityType = "hangout" | "party" | "random_drive" | "bunking" | "other";
+type PlaceSearchResult = { id: string; label: string; latitude: number; longitude: number };
 type Pin = {
   id: string;
   creatorId: string;
@@ -103,6 +104,10 @@ export default function Home() {
   const [photoDataUrl, setPhotoDataUrl] = useState<string | null>(null);
   const [photoDecisionMade, setPhotoDecisionMade] = useState(false);
   const [showProfileUploadPrompt, setShowProfileUploadPrompt] = useState(false);
+  const [placeSearchQuery, setPlaceSearchQuery] = useState("");
+  const [placeSearchResults, setPlaceSearchResults] = useState<PlaceSearchResult[]>([]);
+  const [placeSearchMessage, setPlaceSearchMessage] = useState("");
+  const [manualPinMode, setManualPinMode] = useState(false);
   const [paymentMessage, setPaymentMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const profilePhotoInputRef = useRef<HTMLInputElement | null>(null);
@@ -175,6 +180,8 @@ export default function Home() {
     if (nextPinType) setPinType(nextPinType);
     setPhotoDecisionMade(false);
     setPhotoDataUrl(null);
+    setPlaceSearchMessage("");
+    setManualPinMode(false);
   }
 
   async function submitAuth(event: FormEvent) {
@@ -257,6 +264,10 @@ export default function Home() {
       });
       setSelected(null);
       setPlaceLabel("");
+      setPlaceSearchQuery("");
+      setPlaceSearchResults([]);
+      setPlaceSearchMessage("");
+      setManualPinMode(false);
       setActivityType("hangout");
       setActivityOtherLabel("");
       setTagged([]);
@@ -346,6 +357,62 @@ export default function Home() {
     }
   }
 
+  async function searchPlaces() {
+    const query = placeSearchQuery.trim();
+    if (!query) {
+      setPlaceSearchMessage("Type a place name first.");
+      return;
+    }
+    const key = process.env.NEXT_PUBLIC_MAPTILER_API_KEY;
+    if (!key) {
+      setPlaceSearchMessage("Map search is not configured.");
+      return;
+    }
+    setBusy(true);
+    setPlaceSearchMessage("Searching places...");
+    try {
+      const params = new URLSearchParams({ key, limit: "5", autocomplete: "true" });
+      if (currentLocation) {
+        params.set("proximity", `${currentLocation.longitude},${currentLocation.latitude}`);
+      }
+      const res = await fetch(`https://api.maptiler.com/geocoding/${encodeURIComponent(query)}.json?${params.toString()}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Place search failed");
+      const results = ((data.features ?? []) as { id: string; place_name?: string; text?: string; center?: [number, number] }[])
+        .filter((feature) => Array.isArray(feature.center) && feature.center.length >= 2)
+        .map((feature) => ({
+          id: feature.id,
+          label: feature.place_name ?? feature.text ?? query,
+          longitude: feature.center?.[0] ?? 0,
+          latitude: feature.center?.[1] ?? 0,
+        }));
+      setPlaceSearchResults(results);
+      setPlaceSearchMessage(results.length ? "Choose a result below." : "No places found. Try manual pinning.");
+    } catch (error) {
+      setPlaceSearchMessage(error instanceof Error ? error.message : "Place search failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function choosePlace(result: PlaceSearchResult) {
+    setSelected({ latitude: result.latitude, longitude: result.longitude });
+    setPlaceLabel(result.label);
+    setPlaceSearchQuery(result.label);
+    setPlaceSearchResults([]);
+    setPlaceSearchMessage("Place selected from search.");
+    setManualPinMode(false);
+    setPhotoDecisionMade(false);
+  }
+
+  function selectManualPoint(point: SelectedPoint) {
+    if (pinType !== "forgotten" || !manualPinMode) return;
+    setSelected(point);
+    setPlaceLabel("Manual spot");
+    setPlaceSearchMessage("Manual map spot selected.");
+    setPhotoDecisionMade(false);
+  }
+
   function avatar(user: { username: string; profilePhotoUrl?: string | null }, size = "h-9 w-9") {
     return user.profilePhotoUrl ? (
       <img src={user.profilePhotoUrl} alt={`@${user.username}`} className={clsx(size, "rounded-full object-cover")} />
@@ -422,7 +489,7 @@ export default function Home() {
 
       <div className="mx-auto grid max-w-6xl gap-4 px-4 py-4 lg:grid-cols-[1fr_360px]">
         <section className="h-[58vh] min-h-[420px] overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm lg:h-[calc(100vh-7rem)]">
-          <DrinkMap pins={pins} selected={pinType === "forgotten" ? selected : null} currentLocation={currentLocation} onSelect={setSelected} mapTilerKey={process.env.NEXT_PUBLIC_MAPTILER_API_KEY ?? ""} />
+          <DrinkMap pins={pins} selected={pinType === "forgotten" ? selected : null} currentLocation={currentLocation} onSelect={selectManualPoint} mapTilerKey={process.env.NEXT_PUBLIC_MAPTILER_API_KEY ?? ""} />
         </section>
 
         <aside className="space-y-4">
@@ -440,6 +507,35 @@ export default function Home() {
                 <button type="button" onClick={requestCurrentLocation} disabled={busy} className="w-full rounded-md border border-emerald-700 bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-800 disabled:opacity-60">
                   {currentLocation ? "Refresh current location" : "Use my current location"}
                 </button>
+              )}
+              {pinType === "forgotten" && (
+                <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+                  <p className="text-xs font-bold text-slate-600">Search is the easiest way to place a forgotten pin.</p>
+                  <div className="mt-2 flex gap-2">
+                    <input value={placeSearchQuery} onChange={(e) => setPlaceSearchQuery(e.target.value)} placeholder="Search park, cafe, area..." className="min-w-0 flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm" />
+                    <button type="button" onClick={searchPlaces} disabled={busy} className="rounded-md bg-slate-950 px-3 py-2 text-sm font-bold text-white disabled:opacity-60">Search</button>
+                  </div>
+                  {placeSearchResults.length > 0 && (
+                    <div className="mt-2 space-y-2">
+                      {placeSearchResults.map((result) => (
+                        <button key={result.id} type="button" onClick={() => choosePlace(result)} className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-left text-xs font-semibold text-slate-700">
+                          {result.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {placeSearchMessage && <p className="mt-2 text-xs font-semibold text-slate-500">{placeSearchMessage}</p>}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setManualPinMode((value) => !value);
+                      setPlaceSearchMessage(manualPinMode ? "Search for a place or enable manual pinning." : "Manual mode enabled. Tap the map to choose a spot.");
+                    }}
+                    className={clsx("mt-3 w-full rounded-md border px-3 py-2 text-sm font-bold", manualPinMode ? "border-amber-600 bg-amber-50 text-amber-800" : "border-slate-300 bg-white text-slate-700")}
+                  >
+                    {manualPinMode ? "Manual pin active: tap the map" : "Use manual map pin instead"}
+                  </button>
+                </div>
               )}
               <input value={placeLabel} onChange={(e) => setPlaceLabel(e.target.value)} placeholder="Place label, optional" className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
               <div className="grid grid-cols-2 gap-2">
@@ -485,7 +581,7 @@ export default function Home() {
                 </div>
               )}
               <button disabled={busy || !canSubmitPin} className="w-full rounded-md bg-slate-950 px-4 py-3 font-bold text-white disabled:opacity-50">
-                {pinType === "verified" ? (currentLocation ? "Create GPS pin here" : "Allow location first") : selected ? "Create forgotten pin" : "Tap map to choose forgotten spot"}
+                {pinType === "verified" ? (currentLocation ? "Create GPS pin here" : "Allow location first") : selected ? "Create forgotten pin" : "Search for a place first"}
               </button>
               {pinType === "forgotten" && (
                 <div className="rounded-md border border-amber-200 bg-amber-50 p-3">

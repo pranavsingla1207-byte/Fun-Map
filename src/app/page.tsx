@@ -68,6 +68,14 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return data as T;
 }
 
+function placeSearchErrorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : "Place search failed";
+  if (/key usage|invalid key|key is not valid|not valid/i.test(message)) {
+    return "MapTiler rejected this preview domain/key. Add the Vercel preview domain to MapTiler allowed origins and check NEXT_PUBLIC_MAPTILER_API_KEY.";
+  }
+  return message || "Place search failed";
+}
+
 async function fileToDataUrl(file: File) {
   const compressed = await imageCompression(file, {
     maxSizeMB: 0.8,
@@ -388,8 +396,15 @@ export default function Home() {
         params.set("proximity", `${currentLocation.longitude},${currentLocation.latitude}`);
       }
       const res = await fetch(`https://api.maptiler.com/geocoding/${encodeURIComponent(query)}.json?${params.toString()}`);
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Place search failed");
+      const text = await res.text();
+      let data: { error?: string; features?: { id: string; place_name?: string; text?: string; center?: [number, number] }[] } = {};
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        if (!res.ok) throw new Error(text || "Place search failed");
+        throw new Error("Place search returned an unexpected response");
+      }
+      if (!res.ok) throw new Error(data.error ?? text ?? "Place search failed");
       const results = ((data.features ?? []) as { id: string; place_name?: string; text?: string; center?: [number, number] }[])
         .filter((feature) => Array.isArray(feature.center) && feature.center.length >= 2)
         .map((feature) => ({
@@ -401,7 +416,7 @@ export default function Home() {
       setPlaceSearchResults(results);
       setPlaceSearchMessage(results.length ? "Choose a nearby suggestion." : "No places found. Try manual pinning.");
     } catch (error) {
-      setPlaceSearchMessage(error instanceof Error ? error.message : "Place search failed");
+      setPlaceSearchMessage(placeSearchErrorMessage(error));
     } finally {
       setPlaceSearchLoading(false);
       if (!options?.silent) setBusy(false);

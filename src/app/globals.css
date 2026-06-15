@@ -1,8 +1,29 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f6f3ec;
+  --background: #fff6d8;
   --foreground: #111827;
+  --panel: rgba(255, 255, 255, 0.86);
+  --panel-strong: #ffffff;
+  --panel-soft: rgba(255, 255, 255, 0.52);
+  --border-pop: rgba(15, 23, 42, 0.12);
+  --muted-pop: #526176;
+  --accent-pink: #ff4fab;
+  --accent-lime: #b7ff3c;
+  --accent-cyan: #38d5ff;
+  --accent-purple: #8b5cf6;
+  --shadow-pop: 0 18px 45px rgba(236, 72, 153, 0.16), 0 8px 0 rgba(15, 23, 42, 0.06);
+}
+
+.dark {
+  --background: #090816;
+  --foreground: #f8fafc;
+  --panel: rgba(18, 19, 38, 0.86);
+  --panel-strong: #121326;
+  --panel-soft: rgba(255, 255, 255, 0.07);
+  --border-pop: rgba(255, 255, 255, 0.14);
+  --muted-pop: #a6b0c3;
+  --shadow-pop: 0 20px 55px rgba(56, 213, 255, 0.13), 0 8px 0 rgba(255, 255, 255, 0.06);
 }
 
 @theme inline {
@@ -31,4 +52,154 @@ input {
 
 .leaflet-container {
   font: inherit;
+}
+
+.app-shell {
+  position: relative;
+  overflow-x: hidden;
+  background:
+    radial-gradient(circle at top left, rgba(255, 79, 171, 0.28), transparent 28rem),
+    radial-gradient(circle at 85% 12%, rgba(183, 255, 60, 0.28), transparent 24rem),
+    radial-gradient(circle at 50% 80%, rgba(56, 213, 255, 0.2), transparent 28rem),
+    linear-gradient(135deg, #fff8df 0%, #fff1f8 46%, #edfaff 100%);
+  color: var(--foreground);
+}
+
+.dark .app-shell {
+  background:
+    radial-gradient(circle at top left, rgba(255, 79, 171, 0.22), transparent 28rem),
+    radial-gradient(circle at 88% 8%, rgba(56, 213, 255, 0.18), transparent 24rem),
+    radial-gradient(circle at 50% 85%, rgba(183, 255, 60, 0.12), transparent 24rem),
+    linear-gradient(135deg, #080716 0%, #111028 54%, #07131d 100%);
+}
+
+.brand-kicker {
+  color: var(--accent-pink);
+  font-size: 0.75rem;
+  font-weight: 900;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+}
+
+.pop-card,
+.map-frame,
+.stat-card,
+.approval-card {
+  border: 1px solid var(--border-pop);
+  background: var(--panel);
+  box-shadow: var(--shadow-pop);
+  backdrop-filter: blur(18px);
+  border-radius: 0.65rem;
+}
+
+.map-frame {
+  border: 3px solid rgba(255, 255, 255, 0.72);
+  background: linear-gradient(135deg, rgba(255, 79, 171, 0.34), rgba(56, 213, 255, 0.26));
+}
+
+.stat-card {
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.68)),
+    radial-gradient(circle at top right, rgba(183, 255, 60, 0.55), transparent 65%);
+}
+
+.approval-card,
+.money-panel {
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  background: linear-gradient(135deg, rgba(255, 247, 237, 0.92), rgba(254, 243, 199, 0.78));
+}
+
+.soft-panel,
+.pop-list-item,
+.toast-pop {
+  border: 1px solid var(--border-pop);
+  background: var(--panel-soft);
+  color: var(--foreground);
+}
+
+.pop-input {
+  border: 1px solid var(--border-pop);
+  border-radius: 0.5rem;
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--foreground);
+  outline: none;
+}
+
+.pop-input:focus {
+  border-color: var(--accent-pink);
+  box-shadow: 0 0 0 3px rgba(255, 79, 171, 0.16);
+}
+
+.pop-button,
+.pop-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  border: 1px solid rgba(15, 23, 42, 0.16);
+  border-radius: 0.55rem;
+  background: linear-gradient(135deg, var(--accent-pink), var(--accent-purple));
+  color: #ffffff;
+  font-weight: 900;
+  box-shadow: 0 5px 0 rgba(15, 23, 42, 0.22);
+}
+
+.pop-icon-button {
+  min-height: 2.35rem;
+  padding: 0.5rem 0.7rem;
+  font-size: 0.875rem;
+}
+
+.dark .bg-white,
+.dark .bg-white\/75,
+.dark .bg-white\/80,
+.dark .bg-slate-50,
+.dark .bg-slate-100 {
+  background-color: var(--panel-strong) !important;
+}
+
+.dark .text-slate-950,
+.dark .text-slate-900,
+.dark .text-slate-800,
+.dark .text-slate-700 {
+  color: var(--foreground) !important;
+}
+
+.dark .text-slate-600,
+.dark .text-slate-500 {
+  color: var(--muted-pop) !important;
+}
+
+.dark .border-slate-200,
+.dark .border-slate-300,
+.dark .border-white\/40 {
+  border-color: var(--border-pop) !important;
+}
+
+.dark input,
+.dark button {
+  color-scheme: dark;
+}
+
+.dark .pop-input {
+  background: rgba(8, 10, 24, 0.72);
+}
+
+.dark .approval-card,
+.dark .money-panel {
+  background: linear-gradient(135deg, rgba(69, 45, 8, 0.72), rgba(35, 28, 16, 0.82));
+}
+
+.dark .stat-card {
+  background:
+    linear-gradient(135deg, rgba(18, 19, 38, 0.94), rgba(18, 19, 38, 0.72)),
+    radial-gradient(circle at top right, rgba(56, 213, 255, 0.18), transparent 65%);
+}
+
+.leaflet-popup-content-wrapper,
+.leaflet-popup-tip {
+  background: var(--panel-strong);
+  color: var(--foreground);
+  border: 1px solid var(--border-pop);
+  box-shadow: var(--shadow-pop);
 }

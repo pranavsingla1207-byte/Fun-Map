@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import imageCompression from "browser-image-compression";
-import { Camera, Check, LogOut, MapPin, Plus, UserPlus, X } from "lucide-react";
+import { Camera, Check, LogOut, MapPin, Moon, Plus, Sparkles, Sun, UserPlus, X } from "lucide-react";
 import { clsx } from "clsx";
 
 const DrinkMap = dynamic(() => import("@/components/drink-map"), {
@@ -50,6 +50,7 @@ type Pin = {
   creatorProfilePhotoUrl: string | null;
 };
 type SelectedPoint = { latitude: number; longitude: number };
+type ThemeMode = "system" | "light" | "dark";
 
 declare global {
   interface Window {
@@ -116,6 +117,8 @@ async function fileToDataUrl(file: File) {
 export default function Home() {
   const [me, setMe] = useState<User | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
+  const [themeMode, setThemeMode] = useState<ThemeMode>("system");
+  const [isDarkTheme, setIsDarkTheme] = useState(false);
   const [mode, setMode] = useState<"login" | "signup">("signup");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -150,6 +153,15 @@ export default function Home() {
   const pinLocation = pinType === "verified" ? currentLocation : selected;
   const canSubmitPin = Boolean(pinLocation) && photoDecisionMade && (pinType !== "forgotten" || forgottenRemaining > 0);
   const taggedFriends = useMemo(() => friends.filter((friend) => tagged.includes(friend.id)), [friends, tagged]);
+  const nextThemeLabel = isDarkTheme ? "Light" : "Dark";
+
+  function toggleTheme() {
+    setThemeMode((mode) => {
+      const nextMode = mode === "dark" || (mode === "system" && isDarkTheme) ? "light" : "dark";
+      window.localStorage.setItem("fun_map_theme", nextMode);
+      return nextMode;
+    });
+  }
 
   function requestMapStartLocation() {
     if (!navigator.geolocation) return;
@@ -192,6 +204,25 @@ export default function Home() {
       .catch(() => undefined)
       .finally(() => setAuthChecked(true));
   }, []);
+
+  useEffect(() => {
+    const storedTheme = window.localStorage.getItem("fun_map_theme");
+    if (storedTheme === "light" || storedTheme === "dark" || storedTheme === "system") {
+      window.setTimeout(() => setThemeMode(storedTheme), 0);
+    }
+  }, []);
+
+  useEffect(() => {
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    function applyTheme() {
+      const shouldUseDark = themeMode === "dark" || (themeMode === "system" && media.matches);
+      document.documentElement.classList.toggle("dark", shouldUseDark);
+      setIsDarkTheme(shouldUseDark);
+    }
+    applyTheme();
+    media.addEventListener("change", applyTheme);
+    return () => media.removeEventListener("change", applyTheme);
+  }, [themeMode]);
 
   useEffect(() => {
     if (pinType !== "forgotten") return;
@@ -522,9 +553,9 @@ export default function Home() {
 
   if (!authChecked) {
     return (
-      <main className="grid min-h-screen place-items-center bg-[#f5f2ea] px-5 text-slate-950">
-        <section className="w-full max-w-sm rounded-lg border border-slate-200 bg-white p-6 text-center shadow-sm">
-          <p className="text-sm font-semibold uppercase tracking-[0.24em] text-emerald-700">Fun Map</p>
+      <main className="app-shell grid min-h-screen place-items-center px-5 text-slate-950">
+        <section className="pop-card w-full max-w-sm p-6 text-center">
+          <p className="brand-kicker">Fun Map</p>
           <h1 className="mt-3 text-2xl font-black">Checking your session...</h1>
           <p className="mt-3 text-sm leading-6 text-slate-600">If this device has been used in the last 3 days, we will take you straight to your map.</p>
         </section>
@@ -534,23 +565,29 @@ export default function Home() {
 
   if (!me) {
     return (
-      <main className="min-h-screen bg-[#f5f2ea] px-5 py-8 text-slate-950">
+      <main className="app-shell min-h-screen px-5 py-8 text-slate-950">
+        <button type="button" onClick={toggleTheme} className="pop-icon-button fixed right-5 top-5 z-10" title={`Switch to ${nextThemeLabel} mode`}>
+          {isDarkTheme ? <Sun size={17} /> : <Moon size={17} />}
+          <span>{nextThemeLabel}</span>
+        </button>
         <section className="mx-auto flex min-h-[calc(100vh-4rem)] max-w-md flex-col justify-center">
           <div className="mb-8">
-            <p className="text-sm font-semibold uppercase tracking-[0.24em] text-emerald-700">Fun Map</p>
-            <h1 className="mt-3 text-4xl font-black tracking-tight">Mark the places your crew has conquered.</h1>
+            <div className="inline-flex items-center gap-2 rounded-full border border-pink-200 bg-white/80 px-3 py-1 text-xs font-black uppercase tracking-[0.24em] text-pink-600 shadow-sm">
+              <Sparkles size={14} /> Fun Map
+            </div>
+            <h1 className="mt-4 text-5xl font-black tracking-tight">Mark the places your crew has conquered.</h1>
             <p className="mt-4 text-base leading-7 text-slate-600">
               Add friends, drop map pins, attach proof, and keep forgotten pins limited so the claims still mean something.
             </p>
           </div>
-          <form onSubmit={submitAuth} className="space-y-4 rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="grid grid-cols-2 rounded-md bg-slate-100 p-1 text-sm font-semibold">
+          <form onSubmit={submitAuth} className="pop-card space-y-4 p-5">
+            <div className="soft-panel grid grid-cols-2 rounded-md p-1 text-sm font-semibold">
               <button type="button" onClick={() => setMode("signup")} className={clsx("rounded px-3 py-2", mode === "signup" && "bg-white shadow")}>Sign up</button>
               <button type="button" onClick={() => setMode("login")} className={clsx("rounded px-3 py-2", mode === "login" && "bg-white shadow")}>Log in</button>
             </div>
-            <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="unique username" className="w-full rounded-md border border-slate-300 px-4 py-3 text-base outline-none focus:border-emerald-600" />
-            <input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="password" type="password" className="w-full rounded-md border border-slate-300 px-4 py-3 text-base outline-none focus:border-emerald-600" />
-            <button disabled={busy} className="w-full rounded-md bg-emerald-700 px-4 py-3 font-bold text-white disabled:opacity-60">
+            <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="unique username" className="pop-input w-full px-4 py-3 text-base" />
+            <input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="password" type="password" className="pop-input w-full px-4 py-3 text-base" />
+            <button disabled={busy} className="pop-button w-full px-4 py-3 disabled:opacity-60">
               {busy ? "Working..." : mode === "signup" ? "Create account" : "Enter map"}
             </button>
             {message && <p className="text-sm text-slate-600">{message}</p>}
@@ -561,18 +598,18 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f6f3ec] text-slate-950">
-      <header className="sticky top-0 z-[2000] border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur">
+    <main className="app-shell min-h-screen text-slate-950">
+      <header className="sticky top-0 z-[2000] border-b border-white/40 bg-white/75 px-4 py-3 shadow-sm backdrop-blur-xl">
         <div className="mx-auto flex max-w-6xl items-center justify-between">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-700">Fun Map</p>
+            <p className="brand-kicker">Fun Map</p>
             <div className="relative mt-1 flex items-center gap-2">
               <button type="button" onClick={() => setShowProfileUploadPrompt((value) => !value)} className="rounded-full outline-none focus:ring-2 focus:ring-emerald-700" title="Profile photo options">
                 {avatar(me)}
               </button>
               <input ref={profilePhotoInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => handleProfilePhoto(e.target.files?.[0])} />
               {showProfileUploadPrompt && (
-                <div className="absolute left-0 top-12 z-[2200] w-56 rounded-lg border border-slate-200 bg-white p-3 shadow-lg">
+                <div className="pop-card absolute left-0 top-12 z-[2200] w-56 p-3">
                   <p className="text-xs font-semibold text-slate-500">Profile picture</p>
                   <button
                     type="button"
@@ -580,11 +617,11 @@ export default function Home() {
                       setShowProfileUploadPrompt(false);
                       profilePhotoInputRef.current?.click();
                     }}
-                    className="mt-2 w-full rounded-md bg-emerald-700 px-3 py-2 text-left text-sm font-bold text-white"
+                    className="pop-button mt-2 w-full px-3 py-2 text-left text-sm"
                   >
                     Upload profile photo
                   </button>
-                  <button type="button" onClick={() => setShowProfileUploadPrompt(false)} className="mt-2 w-full rounded-md border border-slate-300 px-3 py-2 text-left text-sm font-semibold">
+                  <button type="button" onClick={() => setShowProfileUploadPrompt(false)} className="pop-list-item mt-2 w-full px-3 py-2 text-left text-sm font-semibold">
                     Cancel
                   </button>
                 </div>
@@ -592,19 +629,25 @@ export default function Home() {
               <h1 className="text-lg font-black">@{me.username}</h1>
             </div>
           </div>
-          <button onClick={logout} className="inline-flex items-center gap-2 rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold">
-            <LogOut size={16} /> Log out
-          </button>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={toggleTheme} className="pop-icon-button" title={`Switch to ${nextThemeLabel} mode`}>
+              {isDarkTheme ? <Sun size={17} /> : <Moon size={17} />}
+              <span className="hidden sm:inline">{nextThemeLabel}</span>
+            </button>
+            <button onClick={logout} className="pop-icon-button">
+              <LogOut size={16} /> <span className="hidden sm:inline">Log out</span>
+            </button>
+          </div>
         </div>
       </header>
 
       <div className="mx-auto grid max-w-6xl gap-4 px-4 py-4 lg:grid-cols-[1fr_360px]">
-        <section className="h-[58vh] min-h-[420px] overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm lg:h-[calc(100vh-7rem)]">
-          <DrinkMap pins={pins} selected={pinType === "forgotten" ? selected : null} currentLocation={currentLocation} onSelect={selectManualPoint} onRemovePin={removePin} mapTilerKey={process.env.NEXT_PUBLIC_MAPTILER_API_KEY ?? ""} />
+        <section className="map-frame h-[58vh] min-h-[420px] overflow-hidden lg:h-[calc(100vh-7rem)]">
+          <DrinkMap pins={pins} selected={pinType === "forgotten" ? selected : null} currentLocation={currentLocation} onSelect={selectManualPoint} onRemovePin={removePin} mapTilerKey={process.env.NEXT_PUBLIC_MAPTILER_API_KEY ?? ""} darkMode={isDarkTheme} />
         </section>
 
         <aside className="space-y-4">
-          <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+          <section className="pop-card p-4">
             <h2 className="flex items-center gap-2 text-base font-black"><MapPin size={18} /> Drop a pin</h2>
             <form onSubmit={submitPin} className="mt-4 space-y-3">
               <div className="grid grid-cols-2 gap-2">
@@ -615,12 +658,12 @@ export default function Home() {
                 {pinType === "forgotten" ? `${forgottenRemaining} forgotten pins left this month. Buy 10 more for Rs 10.` : "GPS verified pins use your current browser location directly."}
               </p>
               {pinType === "verified" && (
-                <button type="button" onClick={requestCurrentLocation} disabled={busy} className="w-full rounded-md border border-emerald-700 bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-800 disabled:opacity-60">
+                <button type="button" onClick={requestCurrentLocation} disabled={busy} className="soft-panel w-full rounded-md px-3 py-2 text-sm font-bold text-emerald-800 disabled:opacity-60">
                   {currentLocation ? "Refresh current location" : "Use my current location"}
                 </button>
               )}
               {pinType === "forgotten" && (
-                <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+                <div className="soft-panel rounded-md p-3">
                   <p className="text-xs font-bold text-slate-600">Search is the easiest way to place a forgotten pin.</p>
                   <div className="mt-2 flex gap-2">
                     <input
@@ -634,14 +677,14 @@ export default function Home() {
                         }
                       }}
                       placeholder="Search park, cafe, area..."
-                      className="min-w-0 flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm"
+                      className="pop-input min-w-0 flex-1 px-3 py-2 text-sm"
                     />
-                    <button type="button" onClick={() => searchPlaces()} disabled={busy || placeSearchLoading} className="rounded-md bg-slate-950 px-3 py-2 text-sm font-bold text-white disabled:opacity-60">Search</button>
+                    <button type="button" onClick={() => searchPlaces()} disabled={busy || placeSearchLoading} className="pop-button px-3 py-2 text-sm disabled:opacity-60">Search</button>
                   </div>
                   {placeSearchResults.length > 0 && (
                     <div className="mt-2 space-y-2">
                       {placeSearchResults.map((result) => (
-                        <button key={result.id} type="button" onClick={() => choosePlace(result)} className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-left text-xs font-semibold text-slate-700">
+                        <button key={result.id} type="button" onClick={() => choosePlace(result)} className="pop-list-item w-full px-3 py-2 text-left text-xs font-semibold">
                           {result.label}
                         </button>
                       ))}
@@ -660,21 +703,21 @@ export default function Home() {
                   </button>
                 </div>
               )}
-              <input value={placeLabel} onChange={(e) => setPlaceLabel(e.target.value)} placeholder="Place label, optional" className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
+              <input value={placeLabel} onChange={(e) => setPlaceLabel(e.target.value)} placeholder="Place label, optional" className="pop-input w-full px-3 py-2 text-sm" />
               <div className="grid grid-cols-2 gap-2">
                 {activities.map((activity) => (
                   <button
                     type="button"
                     key={activity.value}
                     onClick={() => setActivityType(activity.value)}
-                    className={clsx("rounded-md border px-3 py-2 text-xs font-bold", activityType === activity.value ? "border-slate-950 bg-slate-950 text-white" : "border-slate-300")}
+                    className={clsx("rounded-md border px-3 py-2 text-xs font-bold transition", activityType === activity.value ? "border-pink-500 bg-pink-500 text-white shadow-[0_4px_0_#9d174d]" : "border-slate-300 bg-white/60")}
                   >
                     <span className="mr-1">{activity.icon}</span>{activity.label}
                   </button>
                 ))}
               </div>
               {activityType === "other" && (
-                <input value={activityOtherLabel} onChange={(e) => setActivityOtherLabel(e.target.value)} placeholder="Other activity label" className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
+                <input value={activityOtherLabel} onChange={(e) => setActivityOtherLabel(e.target.value)} placeholder="Other activity label" className="pop-input w-full px-3 py-2 text-sm" />
               )}
               <div className="flex flex-wrap gap-2">
                 {friends.map((friend) => (
@@ -682,18 +725,18 @@ export default function Home() {
                     type="button"
                     key={friend.id}
                     onClick={() => setTagged((ids) => ids.includes(friend.id) ? ids.filter((id) => id !== friend.id) : [...ids, friend.id])}
-                    className={clsx("rounded-full border px-3 py-1 text-xs font-bold", tagged.includes(friend.id) ? "border-emerald-700 bg-emerald-700 text-white" : "border-slate-300")}
+                    className={clsx("rounded-full border px-3 py-1 text-xs font-bold transition", tagged.includes(friend.id) ? "border-cyan-500 bg-cyan-400 text-slate-950 shadow-[0_3px_0_#0e7490]" : "border-slate-300 bg-white/60")}
                   >
                     @{friend.username}
                   </button>
                 ))}
               </div>
-              <label className="flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed border-slate-300 px-3 py-3 text-sm font-semibold text-slate-600">
+              <label className="soft-panel flex cursor-pointer items-center justify-center gap-2 rounded-md border-dashed px-3 py-3 text-sm font-semibold text-slate-600">
                 <Camera size={18} /> {photoDataUrl ? "Replace photo" : pinType === "verified" ? "Take photo" : "Attach photo"}
                 <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => handlePhoto(e.target.files?.[0])} />
               </label>
               {pinLocation && !photoDecisionMade && (
-                <button type="button" onClick={() => setPhotoDecisionMade(true)} className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-bold text-slate-700">
+                <button type="button" onClick={() => setPhotoDecisionMade(true)} className="pop-list-item w-full px-3 py-2 text-sm font-bold">
                   Continue without pic
                 </button>
               )}
@@ -703,15 +746,15 @@ export default function Home() {
                   <button type="button" onClick={() => setPhotoDataUrl(null)} className="absolute right-2 top-2 rounded-full bg-white p-1 shadow"><X size={16} /></button>
                 </div>
               )}
-              <button disabled={busy || !canSubmitPin} className="w-full rounded-md bg-slate-950 px-4 py-3 font-bold text-white disabled:opacity-50">
+              <button disabled={busy || !canSubmitPin} className="pop-button w-full px-4 py-3 disabled:opacity-50">
                 {pinType === "verified" ? (currentLocation ? "Create GPS pin here" : "Allow location first") : selected ? "Create forgotten pin" : "Search for a place first"}
               </button>
               {pinType === "forgotten" && (
-                <div className="rounded-md border border-amber-200 bg-amber-50 p-3">
+                <div className="money-panel rounded-md p-3">
                   <p className="text-xs font-semibold text-amber-900">
                     {forgottenRemaining > 0 ? "Want a bigger buffer? You can buy credits before your free pins end." : "No forgotten pins left. Buy credits to continue."}
                   </p>
-                  <button type="button" onClick={buyCredits} disabled={busy} className="mt-2 w-full rounded-md bg-amber-500 px-4 py-3 font-black text-slate-950 disabled:opacity-60">
+                  <button type="button" onClick={buyCredits} disabled={busy} className="mt-2 w-full rounded-md bg-amber-400 px-4 py-3 font-black text-slate-950 shadow-[0_5px_0_#b45309] disabled:opacity-60">
                     {busy ? "Working..." : "Buy 10 forgotten pins for Rs 10"}
                   </button>
                   {paymentMessage && <p className="mt-2 text-xs font-semibold text-amber-900">{paymentMessage}</p>}
@@ -727,7 +770,7 @@ export default function Home() {
               ["With friends", stats.friendTaggedPins],
               ["Forgotten left", credits.remaining],
             ].map(([label, value]) => (
-              <div key={label} className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+              <div key={label} className="stat-card p-3">
                 <p className="text-xs font-semibold text-slate-500">{label}</p>
                 <p className="mt-1 text-2xl font-black">{value}</p>
               </div>
@@ -735,21 +778,21 @@ export default function Home() {
           </section>
 
           {pinTagRequests.length > 0 && (
-            <section className="rounded-lg border border-amber-200 bg-amber-50 p-4 shadow-sm">
+            <section className="approval-card p-4">
               <h2 className="flex items-center gap-2 text-base font-black"><Check size={18} /> Pin approvals</h2>
               <div className="mt-3 space-y-3">
                 {pinTagRequests.map((request) => (
-                  <div key={request.id} className="rounded-md border border-amber-200 bg-white p-3">
+                  <div key={request.id} className="pop-card p-3">
                     {request.photoUrl && <img src={request.photoUrl} alt="Pin proof" className="mb-2 h-24 w-full rounded object-cover" />}
                     <p className="text-sm font-black">{request.placeLabel || "Unnamed spot"}</p>
                     <p className="mt-1 text-xs text-slate-600">
                       @{request.creatorUsername} tagged you in a {request.pinType} {activityDisplay(request.activityType, request.activityOtherLabel)} pin.
                     </p>
                     <div className="mt-3 grid grid-cols-2 gap-2">
-                      <button type="button" disabled={busy} onClick={() => respondPinTag(request.id, "accept")} className="rounded-md bg-emerald-700 px-3 py-2 text-xs font-black text-white disabled:opacity-60">
+                      <button type="button" disabled={busy} onClick={() => respondPinTag(request.id, "accept")} className="pop-button px-3 py-2 text-xs disabled:opacity-60">
                         Accept
                       </button>
-                      <button type="button" disabled={busy} onClick={() => respondPinTag(request.id, "reject")} className="rounded-md border border-slate-300 px-3 py-2 text-xs font-bold disabled:opacity-60">
+                      <button type="button" disabled={busy} onClick={() => respondPinTag(request.id, "reject")} className="pop-list-item px-3 py-2 text-xs font-bold disabled:opacity-60">
                         Reject
                       </button>
                     </div>
@@ -759,15 +802,15 @@ export default function Home() {
             </section>
           )}
 
-          <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+          <section className="pop-card p-4">
             <h2 className="flex items-center gap-2 text-base font-black"><UserPlus size={18} /> Friends</h2>
             <form onSubmit={addFriend} className="mt-3 flex gap-2">
-              <input value={friendUsername} onChange={(e) => setFriendUsername(e.target.value)} placeholder="username" className="min-w-0 flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm" />
-              <button disabled={busy} className="rounded-md bg-emerald-700 px-3 py-2 text-sm font-bold text-white"><Plus size={16} /></button>
+              <input value={friendUsername} onChange={(e) => setFriendUsername(e.target.value)} placeholder="username" className="pop-input min-w-0 flex-1 px-3 py-2 text-sm" />
+              <button disabled={busy} className="pop-button px-3 py-2 text-sm"><Plus size={16} /></button>
             </form>
             <div className="mt-4 space-y-2">
               {requests.map((request) => (
-                <div key={request.id} className="flex items-center justify-between rounded-md bg-amber-50 px-3 py-2 text-sm">
+                <div key={request.id} className="soft-panel flex items-center justify-between rounded-md px-3 py-2 text-sm">
                   <span>@{request.username}</span>
                   <span className="flex gap-2">
                     <button onClick={() => respond(request.id, "accept")} className="rounded bg-emerald-700 p-1 text-white"><Check size={14} /></button>
@@ -775,13 +818,13 @@ export default function Home() {
                   </span>
                 </div>
               ))}
-              {friends.map((friend) => <p key={friend.id} className="flex items-center gap-2 rounded-md bg-slate-50 px-3 py-2 text-sm font-semibold">{avatar(friend, "h-7 w-7")} @{friend.username}</p>)}
+              {friends.map((friend) => <p key={friend.id} className="soft-panel flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold">{avatar(friend, "h-7 w-7")} @{friend.username}</p>)}
               {!friends.length && !requests.length && <p className="text-sm text-slate-500">No friends yet. Add one by username.</p>}
             </div>
           </section>
 
           {taggedFriends.length > 0 && <p className="text-sm text-slate-500">Tagging {taggedFriends.map((f) => `@${f.username}`).join(", ")}</p>}
-          {message && <p className="rounded-md bg-white px-3 py-2 text-sm text-slate-700 shadow-sm">{message}</p>}
+          {message && <p className="toast-pop rounded-md px-3 py-2 text-sm">{message}</p>}
         </aside>
       </div>
     </main>

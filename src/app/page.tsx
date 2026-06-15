@@ -5,6 +5,7 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import imageCompression from "browser-image-compression";
 import { Beer, Camera, Car, Check, CircleHelp, LogOut, MapPin, MessageCircle, Moon, Plus, School, Sparkles, Sun, UserPlus, X, type LucideIcon } from "lucide-react";
 import { clsx } from "clsx";
+import { formatGpsAccuracy, isGpsAccuracyGoodEnough } from "@/lib/gps-accuracy";
 
 const DrinkMap = dynamic(() => import("@/components/drink-map"), {
   ssr: false,
@@ -50,7 +51,7 @@ type Pin = {
   creatorProfilePhotoUrl: string | null;
 };
 type PinViewer = { id: string; username: string };
-type SelectedPoint = { latitude: number; longitude: number };
+type SelectedPoint = { latitude: number; longitude: number; accuracy?: number | null };
 type ThemeMode = "system" | "light" | "dark";
 
 declare global {
@@ -77,6 +78,7 @@ const activities: { value: ActivityType; label: string; Icon: LucideIcon }[] = [
 ];
 
 const placeSearchTypes = ["poi", "address", "road", "place", "locality", "neighbourhood", "municipality"].join(",");
+const highAccuracyOptions: PositionOptions = { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 };
 
 function activityDisplay(activityType: ActivityType, otherLabel?: string | null) {
   const activity = activities.find((item) => item.value === activityType) ?? activities[0];
@@ -115,6 +117,47 @@ async function fileToDataUrl(file: File) {
   });
 }
 
+function pointFromPosition(position: GeolocationPosition): SelectedPoint {
+  return {
+    latitude: position.coords.latitude,
+    longitude: position.coords.longitude,
+    accuracy: position.coords.accuracy,
+  };
+}
+
+function getBestCurrentPosition() {
+  return new Promise<SelectedPoint>((resolve, reject) => {
+    if (!navigator.geolocation) {
+      reject(new Error("This browser does not support location."));
+      return;
+    }
+
+    let bestPoint: SelectedPoint | null = null;
+    let settled = false;
+    let watchId: number | null = null;
+
+    function finish(point: SelectedPoint | null, error?: GeolocationPositionError) {
+      if (settled) return;
+      settled = true;
+      if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+      window.clearTimeout(timeoutId);
+      if (point) resolve(point);
+      else reject(new Error(error?.message || "Could not get your current location."));
+    }
+
+    const timeoutId = window.setTimeout(() => finish(bestPoint), 16000);
+    watchId = navigator.geolocation.watchPosition(
+      (position) => {
+        const point = pointFromPosition(position);
+        if (!bestPoint || (point.accuracy ?? Infinity) < (bestPoint.accuracy ?? Infinity)) bestPoint = point;
+        if (isGpsAccuracyGoodEnough(point.accuracy)) finish(point);
+      },
+      (error) => finish(bestPoint, error),
+      highAccuracyOptions,
+    );
+  });
+}
+
 export default function Home() {
   const [me, setMe] = useState<User | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
@@ -147,13 +190,15 @@ export default function Home() {
   const [placeSearchLoading, setPlaceSearchLoading] = useState(false);
   const [manualPinMode, setManualPinMode] = useState(false);
   const [paymentMessage, setPaymentMessage] = useState("");
+  const [locationMessage, setLocationMessage] = useState("");
   const [activeFriendFilterId, setActiveFriendFilterId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const profilePhotoInputRef = useRef<HTMLInputElement | null>(null);
 
   const forgottenRemaining = credits.remaining;
   const pinLocation = pinType === "verified" ? currentLocation : selected;
-  const canSubmitPin = Boolean(pinLocation) && photoDecisionMade && (pinType !== "forgotten" || forgottenRemaining > 0);
+  const gpsAccuracyGood = pinType !== "verified" || isGpsAccuracyGoodEnough(currentLocation?.accuracy);
+  const canSubmitPin = Boolean(pinLocation) && photoDecisionMade && gpsAccuracyGood && (pinType !== "forgotten" || forgottenRemaining > 0);
   const taggedFriends = useMemo(() => friends.filter((friend) => tagged.includes(friend.id)), [friends, tagged]);
   const activeFriendFilter = useMemo(() => friends.find((friend) => friend.id === activeFriendFilterId) ?? null, [activeFriendFilterId, friends]);
   const visiblePins = useMemo(() => activeFriendFilterId ? pins.filter((pin) => pin.creatorId === activeFriendFilterId) : pins, [activeFriendFilterId, pins]);
@@ -171,10 +216,10 @@ export default function Home() {
     if (!navigator.geolocation) return;
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        setCurrentLocation({ latitude: pos.coords.latitude, longitude: pos.coords.longitude });
+        setCurrentLocation(pointFromPosition(pos));
       },
       () => undefined,
-      { enableHighAccuracy: true, timeout: 15000 },
+      { enableHighAccuracy: true, maximumAge: 60000, timeout: 15000 },
     );
   }
 
@@ -241,25 +286,28 @@ export default function Home() {
 
   async function requestCurrentLocation() {
     setMessage("");
+    setLocationMessage("");
     if (!navigator.geolocation) {
       setMessage("This browser does not support location.");
       return;
     }
     setBusy(true);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const point = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
-        setCurrentLocation(point);
-        setSelected(point);
+    try {
+      const point = await getBestCurrentPosition();
+      setCurrentLocation(point);
+      setSelected(point);
+      if (isGpsAccuracyGoodEnough(point.accuracy)) {
         setMessage("Current location locked for a GPS-verified pin.");
-        setBusy(false);
-      },
-      () => {
-        setMessage("Allow location permission to create a GPS-verified pin.");
-        setBusy(false);
-      },
-      { enableHighAccuracy: true, timeout: 15000 },
-    );
+        setLocationMessage(`GPS accuracy: ${formatGpsAccuracy(point.accuracy)}.`);
+      } else {
+        setMessage(`Location accuracy is ${formatGpsAccuracy(point.accuracy)}. GPS verified pins need accuracy within 150 m.`);
+        setLocationMessage("Move to a more open area or try Refresh current location again.");
+      }
+    } catch {
+      setMessage("Allow location permission to create a GPS-verified pin.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   function resetPinDraft(nextPinType?: "verified" | "forgotten") {
@@ -385,6 +433,11 @@ export default function Home() {
       if (pinType === "verified") await requestCurrentLocation();
       return;
     }
+    if (pinType === "verified" && !isGpsAccuracyGoodEnough(location.accuracy)) {
+      setMessage(`Location accuracy is ${formatGpsAccuracy(location.accuracy)}. GPS verified pins need accuracy within 150 m.`);
+      setLocationMessage("Refresh current location to try for a better GPS fix.");
+      return;
+    }
     if (!photoDecisionMade) {
       setMessage(pinType === "verified" ? "Take a camera photo or continue without one." : "Attach a photo or continue without one.");
       return;
@@ -403,6 +456,7 @@ export default function Home() {
           activityOtherLabel: activityOtherLabel.trim() || null,
           currentLatitude: pinType === "verified" ? location.latitude : currentLocation?.latitude,
           currentLongitude: pinType === "verified" ? location.longitude : currentLocation?.longitude,
+          currentAccuracy: pinType === "verified" ? location.accuracy : currentLocation?.accuracy,
           participantIds: tagged,
           photoDataUrl,
         }),
@@ -719,9 +773,18 @@ export default function Home() {
                 {pinType === "forgotten" ? `${forgottenRemaining} forgotten pins left this month. Buy 10 more for Rs 10.` : "GPS verified pins use your current browser location directly."}
               </p>
               {pinType === "verified" && (
-                <button type="button" onClick={requestCurrentLocation} disabled={busy} className="soft-panel w-full rounded-md px-3 py-2 text-sm font-bold text-emerald-800 disabled:opacity-60">
-                  {currentLocation ? "Refresh current location" : "Use my current location"}
-                </button>
+                <div className="space-y-2">
+                  <button type="button" onClick={requestCurrentLocation} disabled={busy} className="soft-panel w-full rounded-md px-3 py-2 text-sm font-bold text-emerald-800 disabled:opacity-60">
+                    {busy ? "Improving GPS fix..." : currentLocation ? "Refresh current location" : "Use my current location"}
+                  </button>
+                  {currentLocation && (
+                    <p className={clsx("rounded-md px-3 py-2 text-xs font-bold", isGpsAccuracyGoodEnough(currentLocation.accuracy) ? "bg-emerald-50 text-emerald-800" : "bg-red-50 text-red-700")}>
+                      GPS accuracy: {formatGpsAccuracy(currentLocation.accuracy)}
+                      {!isGpsAccuracyGoodEnough(currentLocation.accuracy) && " - too broad for GPS verified pins"}
+                    </p>
+                  )}
+                  {locationMessage && <p className="text-xs font-semibold text-slate-500">{locationMessage}</p>}
+                </div>
               )}
               {pinType === "forgotten" && (
                 <div className="soft-panel rounded-md p-3">
@@ -808,7 +871,13 @@ export default function Home() {
                 </div>
               )}
               <button disabled={busy || !canSubmitPin} className="pop-button w-full px-4 py-3 disabled:opacity-50">
-                {pinType === "verified" ? (currentLocation ? "Create GPS pin here" : "Allow location first") : selected ? "Create forgotten pin" : "Search for a place first"}
+                {pinType === "verified"
+                  ? currentLocation
+                    ? isGpsAccuracyGoodEnough(currentLocation.accuracy)
+                      ? "Create GPS pin here"
+                      : "Improve GPS accuracy first"
+                    : "Allow location first"
+                  : selected ? "Create forgotten pin" : "Search for a place first"}
               </button>
               {pinType === "forgotten" && (
                 <div className="money-panel rounded-md p-3">

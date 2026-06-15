@@ -4,6 +4,7 @@ import { config } from "@/lib/config";
 import { consumeForgottenCredit, getForgottenCreditBalance } from "@/lib/credits";
 import { isMissingTableError } from "@/lib/db-errors";
 import { distanceMeters } from "@/lib/geo";
+import { formatGpsAccuracy, isGpsAccuracyGoodEnough } from "@/lib/gps-accuracy";
 import { decodeImageDataUrl } from "@/lib/images";
 import { supabaseAdmin } from "@/lib/supabase";
 import { pinSchema, removePinSchema } from "@/lib/validation";
@@ -187,6 +188,9 @@ export async function POST(request: Request) {
     if (input.pinType === "verified") {
       if (input.currentLatitude === undefined || input.currentLongitude === undefined) {
         throw new Error("Current GPS location is required for verified pins");
+      }
+      if (!isGpsAccuracyGoodEnough(input.currentAccuracy)) {
+        throw new Error(`Location accuracy is ${formatGpsAccuracy(input.currentAccuracy)}. GPS verified pins need accuracy within 150 m.`);
       }
       const distance = distanceMeters(
         { latitude: input.latitude, longitude: input.longitude },

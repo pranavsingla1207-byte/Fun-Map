@@ -113,6 +113,7 @@ async function fileToDataUrl(file: File) {
 
 export default function Home() {
   const [me, setMe] = useState<User | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
   const [mode, setMode] = useState<"login" | "signup">("signup");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -184,7 +185,10 @@ export default function Home() {
   }
 
   useEffect(() => {
-    void Promise.resolve().then(refresh).catch(() => undefined);
+    void Promise.resolve()
+      .then(refresh)
+      .catch(() => undefined)
+      .finally(() => setAuthChecked(true));
   }, []);
 
   useEffect(() => {
@@ -496,6 +500,18 @@ export default function Home() {
       <img src={user.profilePhotoUrl} alt={`@${user.username}`} className={clsx(size, "rounded-full object-cover")} />
     ) : (
       <span className={clsx(size, "grid place-items-center rounded-full bg-emerald-700 text-sm font-black uppercase text-white")}>{user.username.charAt(0)}</span>
+    );
+  }
+
+  if (!authChecked) {
+    return (
+      <main className="grid min-h-screen place-items-center bg-[#f5f2ea] px-5 text-slate-950">
+        <section className="w-full max-w-sm rounded-lg border border-slate-200 bg-white p-6 text-center shadow-sm">
+          <p className="text-sm font-semibold uppercase tracking-[0.24em] text-emerald-700">Fun Map</p>
+          <h1 className="mt-3 text-2xl font-black">Checking your session...</h1>
+          <p className="mt-3 text-sm leading-6 text-slate-600">If this device has been used in the last 3 days, we will take you straight to your map.</p>
+        </section>
+      </main>
     );
   }
 

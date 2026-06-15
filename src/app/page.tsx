@@ -14,6 +14,19 @@ const DrinkMap = dynamic(() => import("@/components/drink-map"), {
 type User = { id: string; username: string; profilePhotoUrl?: string | null };
 type Friend = { id: string; username: string; profilePhotoUrl?: string | null };
 type FriendRequest = { id: string; username: string; createdAt: string };
+type PinTagRequest = {
+  id: string;
+  pinId: string;
+  creatorId: string;
+  creatorUsername: string;
+  placeLabel: string | null;
+  pinType: "verified" | "forgotten";
+  activityType: ActivityType;
+  activityOtherLabel: string | null;
+  pinCreatedAt: string;
+  requestedAt: string;
+  photoUrl: string | null;
+};
 type Stats = { totalPins: number; uniquePlaces: number; friendTaggedPins: number; forgottenPinsUsedThisWeek: number };
 type CreditBalance = { freeGranted: number; paidGranted: number; consumed: number; remaining: number; periodMonth: string };
 type ActivityType = "hangout" | "party" | "random_drive" | "bunking" | "other";
@@ -30,6 +43,7 @@ type Pin = {
   activityOtherLabel: string | null;
   createdAt: string;
   participants: Friend[];
+  pendingParticipants: Friend[];
   photoUrl: string | null;
   creatorProfilePhotoUrl: string | null;
 };
@@ -59,6 +73,11 @@ const activities: { value: ActivityType; label: string; icon: string }[] = [
 ];
 
 const placeSearchTypes = ["poi", "address", "road", "place", "locality", "neighbourhood", "municipality"].join(",");
+
+function activityDisplay(activityType: ActivityType, otherLabel?: string | null) {
+  const activity = activities.find((item) => item.value === activityType) ?? activities[0];
+  return activityType === "other" && otherLabel ? otherLabel : activity.label;
+}
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
@@ -99,6 +118,7 @@ export default function Home() {
   const [password, setPassword] = useState("");
   const [friends, setFriends] = useState<Friend[]>([]);
   const [requests, setRequests] = useState<FriendRequest[]>([]);
+  const [pinTagRequests, setPinTagRequests] = useState<PinTagRequest[]>([]);
   const [pins, setPins] = useState<Pin[]>([]);
   const [stats, setStats] = useState<Stats>({ totalPins: 0, uniquePlaces: 0, friendTaggedPins: 0, forgottenPinsUsedThisWeek: 0 });
   const [credits, setCredits] = useState<CreditBalance>({ freeGranted: 2, paidGranted: 0, consumed: 0, remaining: 2, periodMonth: "" });
@@ -143,13 +163,15 @@ export default function Home() {
     const meData = await api<{ user: User | null }>("/api/me");
     if (!meData.user) {
       setMe(null);
+      setPinTagRequests([]);
       return;
     }
-    const [friendsData, pinsData, statsData, creditsData] = await Promise.all([
+    const [friendsData, pinsData, statsData, creditsData, pinTagsData] = await Promise.all([
       api<{ friends: Friend[]; incomingRequests: FriendRequest[] }>("/api/friends"),
       api<{ pins: Pin[] }>("/api/pins"),
       api<Stats>("/api/stats"),
       api<CreditBalance>("/api/credits"),
+      api<{ requests: PinTagRequest[] }>("/api/pin-tags"),
     ]);
     setMe(meData.user);
     setFriends(friendsData.friends);
@@ -157,6 +179,7 @@ export default function Home() {
     setPins(pinsData.pins);
     setStats(statsData);
     setCredits(creditsData);
+    setPinTagRequests(pinTagsData.requests);
     if (!currentLocation) requestMapStartLocation();
   }
 
@@ -232,6 +255,7 @@ export default function Home() {
     setPins([]);
     setFriends([]);
     setRequests([]);
+    setPinTagRequests([]);
   }
 
   async function addFriend(event: FormEvent) {
@@ -252,6 +276,20 @@ export default function Home() {
   async function respond(requestId: string, action: "accept" | "reject") {
     await api("/api/friends/respond", { method: "POST", body: JSON.stringify({ requestId, action }) });
     await refresh();
+  }
+
+  async function respondPinTag(requestId: string, action: "accept" | "reject") {
+    setBusy(true);
+    setMessage("");
+    try {
+      await api("/api/pin-tags/respond", { method: "POST", body: JSON.stringify({ requestId, action }) });
+      await refresh();
+      setMessage(action === "accept" ? "Pin tag accepted. It is now on your map." : "Pin tag rejected.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not respond to pin tag");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function submitPin(event: FormEvent) {
@@ -295,7 +333,7 @@ export default function Home() {
       setPhotoDataUrl(null);
       setPhotoDecisionMade(false);
       await refresh();
-      setMessage("Pin dropped. Bragging rights updated.");
+      setMessage(tagged.length ? "Pin dropped. Tags sent for friend approval." : "Pin dropped. Bragging rights updated.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not create pin");
     } finally {
@@ -662,6 +700,31 @@ export default function Home() {
               </div>
             ))}
           </section>
+
+          {pinTagRequests.length > 0 && (
+            <section className="rounded-lg border border-amber-200 bg-amber-50 p-4 shadow-sm">
+              <h2 className="flex items-center gap-2 text-base font-black"><Check size={18} /> Pin approvals</h2>
+              <div className="mt-3 space-y-3">
+                {pinTagRequests.map((request) => (
+                  <div key={request.id} className="rounded-md border border-amber-200 bg-white p-3">
+                    {request.photoUrl && <img src={request.photoUrl} alt="Pin proof" className="mb-2 h-24 w-full rounded object-cover" />}
+                    <p className="text-sm font-black">{request.placeLabel || "Unnamed spot"}</p>
+                    <p className="mt-1 text-xs text-slate-600">
+                      @{request.creatorUsername} tagged you in a {request.pinType} {activityDisplay(request.activityType, request.activityOtherLabel)} pin.
+                    </p>
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <button type="button" disabled={busy} onClick={() => respondPinTag(request.id, "accept")} className="rounded-md bg-emerald-700 px-3 py-2 text-xs font-black text-white disabled:opacity-60">
+                        Accept
+                      </button>
+                      <button type="button" disabled={busy} onClick={() => respondPinTag(request.id, "reject")} className="rounded-md border border-slate-300 px-3 py-2 text-xs font-bold disabled:opacity-60">
+                        Reject
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
 
           <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
             <h2 className="flex items-center gap-2 text-base font-black"><UserPlus size={18} /> Friends</h2>

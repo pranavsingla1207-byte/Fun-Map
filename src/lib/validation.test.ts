@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { authSchema, normalizeUsername, pinSchema } from "./validation";
+import { authSchema, normalizeUsername, pinSchema, pinTagResponseSchema } from "./validation";
 
 describe("validation", () => {
   it("normalizes usernames case-insensitively", () => {
@@ -20,5 +20,10 @@ describe("validation", () => {
 
   it("rejects weak account payloads", () => {
     expect(() => authSchema.parse({ username: "ab", password: "short" })).toThrow();
+  });
+
+  it("accepts pin tag approval responses", () => {
+    const response = pinTagResponseSchema.parse({ requestId: "11111111-1111-4111-8111-111111111111", action: "accept" });
+    expect(response.action).toBe("accept");
   });
 });

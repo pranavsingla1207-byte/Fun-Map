@@ -2,6 +2,7 @@ import { fail, ok } from "@/lib/api";
 import { requireUser } from "@/lib/auth";
 import { config } from "@/lib/config";
 import { consumeForgottenCredit, getForgottenCreditBalance } from "@/lib/credits";
+import { isMissingTableError } from "@/lib/db-errors";
 import { distanceMeters } from "@/lib/geo";
 import { decodeImageDataUrl } from "@/lib/images";
 import { supabaseAdmin } from "@/lib/supabase";
@@ -37,6 +38,12 @@ type ParticipantRow = {
   user_id: string;
 };
 
+type TagRequestRow = {
+  pin_id: string;
+  recipient_id: string;
+  status: "pending" | "accepted" | "rejected";
+};
+
 export async function GET() {
   try {
     const user = await requireUser();
@@ -47,16 +54,19 @@ export async function GET() {
       { data: incomingFriendships, error: incomingFriendshipError },
       { data: acceptedRequests, error: acceptedRequestError },
       { data: participantPins, error: participantPinsError },
+      { data: ownTagRequests, error: ownTagRequestsError },
     ] = await Promise.all([
       supabase.from("friendships").select("friend_id").eq("user_id", user.id),
       supabase.from("friendships").select("user_id").eq("friend_id", user.id),
       supabase.from("friend_requests").select("requester_id, recipient_id").eq("status", "accepted").or(`requester_id.eq.${user.id},recipient_id.eq.${user.id}`),
       supabase.from("drink_pin_participants").select("pin_id").eq("user_id", user.id),
+      supabase.from("drink_pin_tag_requests").select("pin_id, status").eq("recipient_id", user.id).in("status", ["pending", "rejected"]),
     ]);
     if (outgoingFriendshipError) throw outgoingFriendshipError;
     if (incomingFriendshipError) throw incomingFriendshipError;
     if (acceptedRequestError) throw acceptedRequestError;
     if (participantPinsError) throw participantPinsError;
+    if (ownTagRequestsError && !isMissingTableError(ownTagRequestsError)) throw ownTagRequestsError;
 
     const friendIds = new Set<string>([user.id]);
     for (const row of (outgoingFriendships ?? []) as { friend_id: string }[]) friendIds.add(row.friend_id);
@@ -65,6 +75,8 @@ export async function GET() {
       friendIds.add(row.requester_id === user.id ? row.recipient_id : row.requester_id);
     }
     const participantPinIds = ((participantPins ?? []) as { pin_id: string }[]).map((row) => row.pin_id);
+    const participantPinIdSet = new Set(participantPinIds);
+    const hiddenTagPinIds = ownTagRequestsError ? new Set<string>() : new Set(((ownTagRequests ?? []) as { pin_id: string; status: string }[]).map((row) => row.pin_id));
 
     const { data, error } = await supabase
       .from("drink_pins")
@@ -73,10 +85,14 @@ export async function GET() {
       .order("created_at", { ascending: false });
     if (error) throw error;
 
-    const rows = (data ?? []) as unknown as VisiblePinRow[];
+    const rows = ((data ?? []) as unknown as VisiblePinRow[]).filter((row) => {
+      if (row.creator_id === user.id) return true;
+      if (participantPinIdSet.has(row.id)) return true;
+      return !hiddenTagPinIds.has(row.id);
+    });
     const pinIds = rows.map((row) => row.id);
     const creatorIds = Array.from(new Set(rows.map((row) => row.creator_id)));
-    const [{ data: creators, error: creatorError }, { data: photos, error: photoError }, { data: participantRows, error: participantError }] = await Promise.all([
+    const [{ data: creators, error: creatorError }, { data: photos, error: photoError }, { data: participantRows, error: participantError }, { data: tagRequestRows, error: tagRequestError }] = await Promise.all([
       creatorIds.length
         ? supabase.from("users").select("id, username, profile_photo_path").in("id", creatorIds)
         : Promise.resolve({ data: [], error: null }),
@@ -86,10 +102,14 @@ export async function GET() {
       pinIds.length
         ? supabase.from("drink_pin_participants").select("pin_id, user_id").in("pin_id", pinIds)
         : Promise.resolve({ data: [], error: null }),
+      pinIds.length
+        ? supabase.from("drink_pin_tag_requests").select("pin_id, recipient_id, status").in("pin_id", pinIds).eq("requester_id", user.id).eq("status", "pending")
+        : Promise.resolve({ data: [], error: null }),
     ]);
     if (creatorError) throw creatorError;
     if (photoError) throw photoError;
     if (participantError) throw participantError;
+    if (tagRequestError && !isMissingTableError(tagRequestError)) throw tagRequestError;
 
     const creatorById = new Map(((creators ?? []) as unknown as UserRow[]).map((creator) => [creator.id, creator]));
     const photoByPinId = new Map(((photos ?? []) as unknown as PhotoRow[]).map((photo) => [photo.pin_id, photo.storage_path]));
@@ -97,7 +117,11 @@ export async function GET() {
     for (const participant of (participantRows ?? []) as unknown as ParticipantRow[]) {
       participantsByPinId.set(participant.pin_id, [...(participantsByPinId.get(participant.pin_id) ?? []), participant.user_id]);
     }
-    const participantUserIds = Array.from(new Set(Array.from(participantsByPinId.values()).flat()));
+    const pendingByPinId = new Map<string, string[]>();
+    for (const tagRequest of (tagRequestError ? [] : (tagRequestRows ?? [])) as unknown as TagRequestRow[]) {
+      pendingByPinId.set(tagRequest.pin_id, [...(pendingByPinId.get(tagRequest.pin_id) ?? []), tagRequest.recipient_id]);
+    }
+    const participantUserIds = Array.from(new Set([...Array.from(participantsByPinId.values()).flat(), ...Array.from(pendingByPinId.values()).flat()]));
     const { data: participantUsers, error: participantUserError } = participantUserIds.length
       ? await supabase.from("users").select("id, username, profile_photo_path").in("id", participantUserIds)
       : { data: [], error: null };
@@ -135,6 +159,10 @@ export async function GET() {
             const participant = participantById.get(participantId);
             return { id: participantId, username: participant?.username ?? "unknown" };
           }),
+        pendingParticipants: (pendingByPinId.get(row.id) ?? []).map((participantId) => {
+          const participant = participantById.get(participantId);
+          return { id: participantId, username: participant?.username ?? "unknown" };
+        }),
         photoUrl,
       };
     }));
@@ -175,6 +203,12 @@ export async function POST(request: Request) {
         .in("friend_id", input.participantIds);
       if (error) throw error;
       if ((count ?? 0) !== input.participantIds.length) throw new Error("Only accepted friends can be tagged");
+
+      const { error: tagTableError } = await supabase.from("drink_pin_tag_requests").select("id", { head: true }).limit(1);
+      if (tagTableError) {
+        if (isMissingTableError(tagTableError)) throw new Error("Pin approvals need a database update before tagging friends.");
+        throw tagTableError;
+      }
     }
 
     const { data: pin, error: pinError } = await supabase
@@ -192,12 +226,21 @@ export async function POST(request: Request) {
       .single();
     if (pinError) throw pinError;
 
-    const participants = Array.from(new Set([user.id, ...input.participantIds])).map((participantId) => ({
+    const { error: participantsError } = await supabase.from("drink_pin_participants").insert({
       pin_id: pin.id,
-      user_id: participantId,
-    }));
-    const { error: participantsError } = await supabase.from("drink_pin_participants").insert(participants);
+      user_id: user.id,
+    });
     if (participantsError) throw participantsError;
+
+    const tagRequests = Array.from(new Set(input.participantIds.filter((participantId) => participantId !== user.id))).map((participantId) => ({
+      pin_id: pin.id,
+      requester_id: user.id,
+      recipient_id: participantId,
+    }));
+    if (tagRequests.length) {
+      const { error: tagRequestsError } = await supabase.from("drink_pin_tag_requests").insert(tagRequests);
+      if (tagRequestsError) throw tagRequestsError;
+    }
 
     if (input.pinType === "forgotten") {
       await consumeForgottenCredit(user.id, pin.id);

@@ -18,6 +18,11 @@ export const friendResponseSchema = z.object({
   action: z.enum(["accept", "reject"]),
 });
 
+export const pinTagResponseSchema = z.object({
+  requestId: z.string().uuid(),
+  action: z.enum(["accept", "reject"]),
+});
+
 export const pinSchema = z.object({
   latitude: z.number().min(-90).max(90),
   longitude: z.number().min(-180).max(180),

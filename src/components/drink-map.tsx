@@ -3,6 +3,7 @@
 import { DivIcon, Icon, LatLngExpression } from "leaflet";
 import { useEffect } from "react";
 import { MapContainer, Marker, Popup, TileLayer, useMap, useMapEvents } from "react-leaflet";
+import { formatVerifiedPinTimeLog } from "@/lib/pin-time";
 
 type Friend = { id: string; username: string; profilePhotoUrl?: string | null };
 type Pin = {
@@ -143,27 +144,35 @@ export default function DrinkMap({
           <Popup>Selected pin spot</Popup>
         </Marker>
       )}
-      {pins.map((pin) => (
-        <Marker key={pin.id} position={[pin.latitude, pin.longitude]} icon={initialIcon(pin)}>
-          <Popup>
-            <div className="w-48 text-slate-950">
-              {pin.photoUrl && <img src={pin.photoUrl} alt="Pin proof" className="mb-2 h-28 w-full rounded object-cover" />}
-              <p className="font-bold">{pin.placeLabel || "Unnamed spot"}</p>
-              <p className="text-xs text-slate-600">By @{pin.creatorUsername} - {pin.pinType}</p>
-              <p className="mt-1 text-xs font-bold text-amber-700">
-                {activityMeta[pin.activityType]?.label ?? "Hangout"}{pin.activityType === "other" && pin.activityOtherLabel ? `: ${pin.activityOtherLabel}` : ""}
-              </p>
-              {pin.participants.length > 0 && <p className="mt-1 text-xs">With {pin.participants.map((p) => `@${p.username}`).join(", ")}</p>}
-              {(pin.pendingParticipants?.length ?? 0) > 0 && <p className="mt-1 text-xs text-amber-700">Pending {pin.pendingParticipants?.map((p) => `@${p.username}`).join(", ")}</p>}
-              {pin.canRemoveSelf && (
-                <button type="button" onClick={() => onRemovePin(pin.id)} className="mt-2 w-full rounded bg-red-50 px-2 py-1 text-xs font-bold text-red-700">
-                  Remove my bubble
-                </button>
-              )}
-            </div>
-          </Popup>
-        </Marker>
-      ))}
+      {pins.map((pin) => {
+        const verifiedTimeLog = pin.pinType === "verified" ? formatVerifiedPinTimeLog(pin.createdAt) : null;
+        return (
+          <Marker key={pin.id} position={[pin.latitude, pin.longitude]} icon={initialIcon(pin)}>
+            <Popup>
+              <div className="w-48 text-slate-950">
+                {pin.photoUrl && <img src={pin.photoUrl} alt="Pin proof" className="mb-2 h-28 w-full rounded object-cover" />}
+                <p className="font-bold">{pin.placeLabel || "Unnamed spot"}</p>
+                <p className="text-xs text-slate-600">By @{pin.creatorUsername} - {pin.pinType}</p>
+                <p className="mt-1 text-xs font-bold text-amber-700">
+                  {activityMeta[pin.activityType]?.label ?? "Hangout"}{pin.activityType === "other" && pin.activityOtherLabel ? `: ${pin.activityOtherLabel}` : ""}
+                </p>
+                {verifiedTimeLog && (
+                  <p className="mt-1 rounded bg-emerald-50 px-2 py-1 text-xs font-bold text-emerald-700">
+                    {verifiedTimeLog}
+                  </p>
+                )}
+                {pin.participants.length > 0 && <p className="mt-1 text-xs">With {pin.participants.map((p) => `@${p.username}`).join(", ")}</p>}
+                {(pin.pendingParticipants?.length ?? 0) > 0 && <p className="mt-1 text-xs text-amber-700">Pending {pin.pendingParticipants?.map((p) => `@${p.username}`).join(", ")}</p>}
+                {pin.canRemoveSelf && (
+                  <button type="button" onClick={() => onRemovePin(pin.id)} className="mt-2 w-full rounded bg-red-50 px-2 py-1 text-xs font-bold text-red-700">
+                    Remove my bubble
+                  </button>
+                )}
+              </div>
+            </Popup>
+          </Marker>
+        );
+      })}
     </MapContainer>
   );
 }

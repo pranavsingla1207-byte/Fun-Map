@@ -58,6 +58,8 @@ const activities: { value: ActivityType; label: string; icon: string }[] = [
   { value: "other", label: "Other", icon: "*" },
 ];
 
+const placeSearchTypes = ["poi", "address", "road", "place", "locality", "neighbourhood", "municipality"].join(",");
+
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     ...init,
@@ -391,9 +393,19 @@ export default function Home() {
     if (!options?.silent) setBusy(true);
     setPlaceSearchMessage(options?.silent ? "Finding nearby matches..." : "Searching places...");
     try {
-      const params = new URLSearchParams({ key, limit: "5", autocomplete: "true" });
+      const params = new URLSearchParams({
+        key,
+        limit: "10",
+        autocomplete: "true",
+        fuzzyMatch: "true",
+        country: "in",
+        language: "en,hi",
+        types: placeSearchTypes,
+      });
       if (currentLocation) {
         params.set("proximity", `${currentLocation.longitude},${currentLocation.latitude}`);
+      } else {
+        params.set("proximity", "ip");
       }
       const res = await fetch(`https://api.maptiler.com/geocoding/${encodeURIComponent(query)}.json?${params.toString()}`);
       const text = await res.text();
@@ -479,7 +491,7 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-[#f6f3ec] text-slate-950">
-      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur">
+      <header className="sticky top-0 z-[2000] border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-700">Fun Map</p>
@@ -489,7 +501,7 @@ export default function Home() {
               </button>
               <input ref={profilePhotoInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => handleProfilePhoto(e.target.files?.[0])} />
               {showProfileUploadPrompt && (
-                <div className="absolute left-0 top-12 z-40 w-56 rounded-lg border border-slate-200 bg-white p-3 shadow-lg">
+                <div className="absolute left-0 top-12 z-[2200] w-56 rounded-lg border border-slate-200 bg-white p-3 shadow-lg">
                   <p className="text-xs font-semibold text-slate-500">Profile picture</p>
                   <button
                     type="button"

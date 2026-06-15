@@ -6,7 +6,7 @@ import { isMissingTableError } from "@/lib/db-errors";
 import { distanceMeters } from "@/lib/geo";
 import { decodeImageDataUrl } from "@/lib/images";
 import { supabaseAdmin } from "@/lib/supabase";
-import { pinSchema } from "@/lib/validation";
+import { pinSchema, removePinSchema } from "@/lib/validation";
 
 export const runtime = "nodejs";
 
@@ -86,7 +86,6 @@ export async function GET() {
     if (error) throw error;
 
     const rows = ((data ?? []) as unknown as VisiblePinRow[]).filter((row) => {
-      if (row.creator_id === user.id) return true;
       if (participantPinIdSet.has(row.id)) return true;
       return !hiddenTagPinIds.has(row.id);
     });
@@ -141,6 +140,7 @@ export async function GET() {
         const signed = await supabase.storage.from(config.profilePhotoBucket).createSignedUrl(creator.profile_photo_path, 60 * 10);
         creatorProfilePhotoUrl = signed.data?.signedUrl ?? null;
       }
+      const approvedParticipantIds = participantsByPinId.get(row.id) ?? [];
       const participants = await Promise.all((participantsByPinId.get(row.id) ?? [])
         .filter((participantId) => participantId !== row.creator_id)
         .map(async (participantId) => {
@@ -157,6 +157,7 @@ export async function GET() {
         creatorId: row.creator_id,
         creatorUsername: creator?.username ?? "unknown",
         creatorProfilePhotoUrl,
+        creatorIsParticipant: approvedParticipantIds.includes(row.creator_id),
         latitude: row.latitude,
         longitude: row.longitude,
         placeLabel: row.place_label,
@@ -169,6 +170,7 @@ export async function GET() {
           const participant = participantById.get(participantId);
           return { id: participantId, username: participant?.username ?? "unknown" };
         }),
+        canRemoveSelf: participantPinIdSet.has(row.id),
         photoUrl,
       };
     }));
@@ -271,6 +273,45 @@ export async function POST(request: Request) {
     }
 
     return ok({ id: pin.id });
+  } catch (error) {
+    return fail(error, error instanceof Error && error.message === "Unauthorized" ? 401 : 400);
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const user = await requireUser();
+    const input = removePinSchema.parse(await request.json());
+    const supabase = supabaseAdmin();
+
+    const { data: participation, error: participationError } = await supabase
+      .from("drink_pin_participants")
+      .select("pin_id")
+      .eq("pin_id", input.pinId)
+      .eq("user_id", user.id)
+      .maybeSingle();
+    if (participationError) throw participationError;
+    if (!participation) throw new Error("You are not on this pin");
+
+    const { error: deleteParticipationError } = await supabase
+      .from("drink_pin_participants")
+      .delete()
+      .eq("pin_id", input.pinId)
+      .eq("user_id", user.id);
+    if (deleteParticipationError) throw deleteParticipationError;
+
+    const { count, error: countError } = await supabase
+      .from("drink_pin_participants")
+      .select("pin_id", { count: "exact", head: true })
+      .eq("pin_id", input.pinId);
+    if (countError) throw countError;
+
+    if ((count ?? 0) === 0) {
+      const { error: deletePinError } = await supabase.from("drink_pins").delete().eq("id", input.pinId);
+      if (deletePinError) throw deletePinError;
+    }
+
+    return ok({ ok: true, deletedPin: (count ?? 0) === 0 });
   } catch (error) {
     return fail(error, error instanceof Error && error.message === "Unauthorized" ? 401 : 400);
   }

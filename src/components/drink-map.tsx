@@ -9,6 +9,7 @@ type Pin = {
   id: string;
   creatorUsername: string;
   creatorProfilePhotoUrl: string | null;
+  creatorIsParticipant: boolean;
   latitude: number;
   longitude: number;
   placeLabel: string | null;
@@ -18,6 +19,7 @@ type Pin = {
   createdAt: string;
   participants: Friend[];
   pendingParticipants?: Friend[];
+  canRemoveSelf?: boolean;
   photoUrl: string | null;
 };
 type Point = { latitude: number; longitude: number };
@@ -55,8 +57,9 @@ function avatarBubbleHtml(user: { username: string; profilePhotoUrl?: string | n
 
 function initialIcon(pin: Pin) {
   const activity = activityMeta[pin.activityType] ?? activityMeta.hangout;
-  const clusterUsers = [{ username: pin.creatorUsername, profilePhotoUrl: pin.creatorProfilePhotoUrl }, ...pin.participants].slice(0, 4);
-  const overflowCount = Math.max(0, pin.participants.length + 1 - clusterUsers.length);
+  const activeUsers = [...(pin.creatorIsParticipant ? [{ username: pin.creatorUsername, profilePhotoUrl: pin.creatorProfilePhotoUrl }] : []), ...pin.participants];
+  const clusterUsers = activeUsers.slice(0, 4);
+  const overflowCount = Math.max(0, activeUsers.length - clusterUsers.length);
   const clusterWidth = Math.max(40, clusterUsers.length * 18 + 12 + (overflowCount ? 18 : 0));
   const avatarsHtml = clusterUsers.map((person, index) => avatarBubbleHtml(person, index)).join("");
   const overflowHtml = overflowCount
@@ -103,12 +106,14 @@ export default function DrinkMap({
   selected,
   currentLocation,
   onSelect,
+  onRemovePin,
   mapTilerKey,
 }: {
   pins: Pin[];
   selected: Point | null;
   currentLocation: Point | null;
   onSelect: (point: Point) => void;
+  onRemovePin: (pinId: string) => void;
   mapTilerKey: string;
 }) {
   const center: LatLngExpression = currentLocation
@@ -147,6 +152,11 @@ export default function DrinkMap({
               </p>
               {pin.participants.length > 0 && <p className="mt-1 text-xs">With {pin.participants.map((p) => `@${p.username}`).join(", ")}</p>}
               {(pin.pendingParticipants?.length ?? 0) > 0 && <p className="mt-1 text-xs text-amber-700">Pending {pin.pendingParticipants?.map((p) => `@${p.username}`).join(", ")}</p>}
+              {pin.canRemoveSelf && (
+                <button type="button" onClick={() => onRemovePin(pin.id)} className="mt-2 w-full rounded bg-red-50 px-2 py-1 text-xs font-bold text-red-700">
+                  Remove my bubble
+                </button>
+              )}
             </div>
           </Popup>
         </Marker>

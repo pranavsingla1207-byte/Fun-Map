@@ -70,6 +70,18 @@ create table if not exists drink_pin_participants (
   primary key (pin_id, user_id)
 );
 
+create table if not exists drink_pin_tag_requests (
+  id uuid primary key default gen_random_uuid(),
+  pin_id uuid not null references drink_pins(id) on delete cascade,
+  requester_id uuid not null references users(id) on delete cascade,
+  recipient_id uuid not null references users(id) on delete cascade,
+  status text not null default 'pending' check (status in ('pending', 'accepted', 'rejected')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (pin_id, recipient_id),
+  check (requester_id <> recipient_id)
+);
+
 create table if not exists pin_photos (
   id uuid primary key default gen_random_uuid(),
   pin_id uuid not null unique references drink_pins(id) on delete cascade,
@@ -146,6 +158,8 @@ group by viewer.user_id, pins.id, creators.username, photos.storage_path;
 create index if not exists sessions_token_hash_idx on sessions(token_hash);
 create index if not exists drink_pins_creator_created_idx on drink_pins(creator_id, created_at desc);
 create index if not exists friendships_friend_idx on friendships(friend_id);
+create index if not exists drink_pin_tag_requests_recipient_status_idx on drink_pin_tag_requests(recipient_id, status, created_at desc);
+create index if not exists drink_pin_tag_requests_pin_idx on drink_pin_tag_requests(pin_id);
 create index if not exists forgotten_credit_ledger_user_idx on forgotten_credit_ledger(user_id, created_at desc);
 create unique index if not exists forgotten_credit_monthly_free_idx
   on forgotten_credit_ledger(user_id, period_month)

@@ -17,6 +17,7 @@ type Pin = {
   activityOtherLabel: string | null;
   createdAt: string;
   participants: Friend[];
+  pendingParticipants?: Friend[];
   photoUrl: string | null;
 };
 type Point = { latitude: number; longitude: number };
@@ -135,6 +136,7 @@ export default function DrinkMap({
                 {activityMeta[pin.activityType]?.label ?? "Hangout"}{pin.activityType === "other" && pin.activityOtherLabel ? `: ${pin.activityOtherLabel}` : ""}
               </p>
               {pin.participants.length > 0 && <p className="mt-1 text-xs">With {pin.participants.map((p) => `@${p.username}`).join(", ")}</p>}
+              {(pin.pendingParticipants?.length ?? 0) > 0 && <p className="mt-1 text-xs text-amber-700">Pending {pin.pendingParticipants?.map((p) => `@${p.username}`).join(", ")}</p>}
             </div>
           </Popup>
         </Marker>

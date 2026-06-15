@@ -1,13 +1,14 @@
 "use client";
 
 import { DivIcon, Icon, LatLngExpression } from "leaflet";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { MapContainer, Marker, Popup, TileLayer, useMap, useMapEvents } from "react-leaflet";
 import { formatVerifiedPinTimeLog } from "@/lib/pin-time";
 
 type Friend = { id: string; username: string; profilePhotoUrl?: string | null };
 type Pin = {
   id: string;
+  creatorId: string;
   creatorUsername: string;
   creatorProfilePhotoUrl: string | null;
   creatorIsParticipant: boolean;
@@ -108,6 +109,9 @@ export default function DrinkMap({
   currentLocation,
   onSelect,
   onRemovePin,
+  friends,
+  currentUserId,
+  onAddTags,
   mapTilerKey,
   darkMode,
 }: {
@@ -116,9 +120,13 @@ export default function DrinkMap({
   currentLocation: Point | null;
   onSelect: (point: Point) => void;
   onRemovePin: (pinId: string) => void;
+  friends: Friend[];
+  currentUserId: string;
+  onAddTags: (pinId: string, participantIds: string[]) => Promise<void>;
   mapTilerKey: string;
   darkMode: boolean;
 }) {
+  const [selectedTagIdsByPin, setSelectedTagIdsByPin] = useState<Record<string, string[]>>({});
   const center: LatLngExpression = currentLocation
     ? [currentLocation.latitude, currentLocation.longitude]
     : pins[0]
@@ -128,6 +136,22 @@ export default function DrinkMap({
   const tileUrl = mapTilerKey
     ? `https://api.maptiler.com/maps/${tileStyle}/{z}/{x}/{y}.png?key=${mapTilerKey}`
     : "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+
+  function toggleTagCandidate(pinId: string, friendId: string) {
+    setSelectedTagIdsByPin((current) => {
+      const selectedIds = current[pinId] ?? [];
+      return {
+        ...current,
+        [pinId]: selectedIds.includes(friendId) ? selectedIds.filter((id) => id !== friendId) : [...selectedIds, friendId],
+      };
+    });
+  }
+
+  async function addTags(pinId: string) {
+    const selectedIds = selectedTagIdsByPin[pinId] ?? [];
+    await onAddTags(pinId, selectedIds);
+    setSelectedTagIdsByPin((current) => ({ ...current, [pinId]: [] }));
+  }
 
   return (
     <MapContainer center={center} zoom={13} className="h-full w-full" scrollWheelZoom>
@@ -146,6 +170,13 @@ export default function DrinkMap({
       )}
       {pins.map((pin) => {
         const verifiedTimeLog = pin.pinType === "verified" ? formatVerifiedPinTimeLog(pin.createdAt) : null;
+        const unavailableFriendIds = new Set([
+          pin.creatorId,
+          ...pin.participants.map((participant) => participant.id),
+          ...(pin.pendingParticipants ?? []).map((participant) => participant.id),
+        ]);
+        const eligibleFriends = pin.creatorId === currentUserId ? friends.filter((friend) => !unavailableFriendIds.has(friend.id)) : [];
+        const selectedTagIds = selectedTagIdsByPin[pin.id] ?? [];
         return (
           <Marker key={pin.id} position={[pin.latitude, pin.longitude]} icon={initialIcon(pin)}>
             <Popup>
@@ -163,6 +194,37 @@ export default function DrinkMap({
                 )}
                 {pin.participants.length > 0 && <p className="mt-1 text-xs">With {pin.participants.map((p) => `@${p.username}`).join(", ")}</p>}
                 {(pin.pendingParticipants?.length ?? 0) > 0 && <p className="mt-1 text-xs text-amber-700">Pending {pin.pendingParticipants?.map((p) => `@${p.username}`).join(", ")}</p>}
+                {pin.creatorId === currentUserId && (
+                  <div className="mt-2 rounded border border-slate-200 bg-white/80 p-2">
+                    <p className="text-xs font-black text-slate-700">Forgot someone?</p>
+                    {eligibleFriends.length > 0 ? (
+                      <>
+                        <div className="mt-2 flex flex-wrap gap-1">
+                          {eligibleFriends.map((friend) => (
+                            <button
+                              type="button"
+                              key={friend.id}
+                              onClick={() => toggleTagCandidate(pin.id, friend.id)}
+                              className={`rounded-full border px-2 py-1 text-[11px] font-bold ${selectedTagIds.includes(friend.id) ? "border-cyan-500 bg-cyan-300 text-slate-950" : "border-slate-300 bg-white text-slate-700"}`}
+                            >
+                              @{friend.username}
+                            </button>
+                          ))}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => addTags(pin.id)}
+                          disabled={!selectedTagIds.length}
+                          className="mt-2 w-full rounded bg-slate-950 px-2 py-1 text-xs font-bold text-white disabled:opacity-50"
+                        >
+                          Send tag request{selectedTagIds.length === 1 ? "" : "s"}
+                        </button>
+                      </>
+                    ) : (
+                      <p className="mt-1 text-xs text-slate-500">No eligible friends left to tag.</p>
+                    )}
+                  </div>
+                )}
                 {pin.canRemoveSelf && (
                   <button type="button" onClick={() => onRemovePin(pin.id)} className="mt-2 w-full rounded bg-red-50 px-2 py-1 text-xs font-bold text-red-700">
                     Remove my bubble

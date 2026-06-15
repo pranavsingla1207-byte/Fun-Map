@@ -344,6 +344,21 @@ export default function Home() {
     }
   }
 
+  async function addTagsToPin(pinId: string, participantIds: string[]) {
+    if (!participantIds.length) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      const result = await api<{ requested: number }>("/api/pins/tags", { method: "POST", body: JSON.stringify({ pinId, participantIds }) });
+      await refresh();
+      setMessage(`${result.requested} tag request${result.requested === 1 ? "" : "s"} sent for approval.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not tag more friends");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function submitPin(event: FormEvent) {
     event.preventDefault();
     const location = pinType === "verified" ? currentLocation : selected;
@@ -643,7 +658,18 @@ export default function Home() {
 
       <div className="mx-auto grid max-w-6xl gap-4 px-4 py-4 lg:grid-cols-[1fr_360px]">
         <section className="map-frame h-[58vh] min-h-[420px] overflow-hidden lg:h-[calc(100vh-7rem)]">
-          <DrinkMap pins={pins} selected={pinType === "forgotten" ? selected : null} currentLocation={currentLocation} onSelect={selectManualPoint} onRemovePin={removePin} mapTilerKey={process.env.NEXT_PUBLIC_MAPTILER_API_KEY ?? ""} darkMode={isDarkTheme} />
+          <DrinkMap
+            pins={pins}
+            selected={pinType === "forgotten" ? selected : null}
+            currentLocation={currentLocation}
+            onSelect={selectManualPoint}
+            onRemovePin={removePin}
+            friends={friends}
+            currentUserId={me.id}
+            onAddTags={addTagsToPin}
+            mapTilerKey={process.env.NEXT_PUBLIC_MAPTILER_API_KEY ?? ""}
+            darkMode={isDarkTheme}
+          />
         </section>
 
         <aside className="space-y-4">

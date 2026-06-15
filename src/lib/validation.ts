@@ -23,6 +23,11 @@ export const pinTagResponseSchema = z.object({
   action: z.enum(["accept", "reject"]),
 });
 
+export const addPinTagsSchema = z.object({
+  pinId: z.string().uuid(),
+  participantIds: z.array(z.string().uuid()).min(1).max(20),
+});
+
 export const pinSchema = z.object({
   latitude: z.number().min(-90).max(90),
   longitude: z.number().min(-180).max(180),

@@ -35,6 +35,7 @@ type Pin = {
   id: string;
   creatorId: string;
   creatorUsername: string;
+  creatorIsParticipant: boolean;
   latitude: number;
   longitude: number;
   placeLabel: string | null;
@@ -44,6 +45,7 @@ type Pin = {
   createdAt: string;
   participants: Friend[];
   pendingParticipants: Friend[];
+  canRemoveSelf: boolean;
   photoUrl: string | null;
   creatorProfilePhotoUrl: string | null;
 };
@@ -291,6 +293,21 @@ export default function Home() {
       setMessage(action === "accept" ? "Pin tag accepted. It is now on your map." : "Pin tag rejected.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not respond to pin tag");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removePin(pinId: string) {
+    if (!window.confirm("Remove your bubble from this pin? If nobody else has accepted it, the pin will be deleted.")) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      const result = await api<{ deletedPin: boolean }>("/api/pins", { method: "DELETE", body: JSON.stringify({ pinId }) });
+      await refresh();
+      setMessage(result.deletedPin ? "Pin removed." : "Your bubble was removed from the pin.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not remove pin");
     } finally {
       setBusy(false);
     }
@@ -583,7 +600,7 @@ export default function Home() {
 
       <div className="mx-auto grid max-w-6xl gap-4 px-4 py-4 lg:grid-cols-[1fr_360px]">
         <section className="h-[58vh] min-h-[420px] overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm lg:h-[calc(100vh-7rem)]">
-          <DrinkMap pins={pins} selected={pinType === "forgotten" ? selected : null} currentLocation={currentLocation} onSelect={selectManualPoint} mapTilerKey={process.env.NEXT_PUBLIC_MAPTILER_API_KEY ?? ""} />
+          <DrinkMap pins={pins} selected={pinType === "forgotten" ? selected : null} currentLocation={currentLocation} onSelect={selectManualPoint} onRemovePin={removePin} mapTilerKey={process.env.NEXT_PUBLIC_MAPTILER_API_KEY ?? ""} />
         </section>
 
         <aside className="space-y-4">

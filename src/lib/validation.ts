@@ -36,6 +36,10 @@ export const pinSchema = z.object({
   photoDataUrl: z.string().startsWith("data:image/").max(1_400_000).nullable().optional(),
 });
 
+export const removePinSchema = z.object({
+  pinId: z.string().uuid(),
+});
+
 export const profilePhotoSchema = z.object({
   photoDataUrl: z.string().startsWith("data:image/").max(1_400_000),
 });

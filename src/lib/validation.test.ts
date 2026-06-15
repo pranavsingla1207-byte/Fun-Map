@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { authSchema, normalizeUsername, pinSchema, pinTagResponseSchema } from "./validation";
+import { authSchema, normalizeUsername, pinSchema, pinTagResponseSchema, removePinSchema } from "./validation";
 
 describe("validation", () => {
   it("normalizes usernames case-insensitively", () => {
@@ -25,5 +25,10 @@ describe("validation", () => {
   it("accepts pin tag approval responses", () => {
     const response = pinTagResponseSchema.parse({ requestId: "11111111-1111-4111-8111-111111111111", action: "accept" });
     expect(response.action).toBe("accept");
+  });
+
+  it("accepts remove pin payloads", () => {
+    const payload = removePinSchema.parse({ pinId: "11111111-1111-4111-8111-111111111111" });
+    expect(payload.pinId).toBe("11111111-1111-4111-8111-111111111111");
   });
 });

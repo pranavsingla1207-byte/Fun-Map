@@ -4,8 +4,10 @@ import { DivIcon, Icon, LatLngExpression } from "leaflet";
 import { useEffect, useState } from "react";
 import { MapContainer, Marker, Popup, TileLayer, useMap, useMapEvents } from "react-leaflet";
 import { formatVerifiedPinTimeLog } from "@/lib/pin-time";
+import { isWithinPinViewWindow } from "@/lib/pin-view-window";
 
 type Friend = { id: string; username: string; profilePhotoUrl?: string | null };
+type PinViewer = { id: string; username: string };
 type Pin = {
   id: string;
   creatorId: string;
@@ -36,11 +38,11 @@ const defaultIcon = new Icon({
 
 const markerColors = ["#047857", "#2563eb", "#c2410c", "#7c3aed", "#be123c", "#0f766e", "#a16207"];
 const activityMeta = {
-  hangout: { label: "Hangout", icon: "H" },
-  party: { label: "Party", icon: "P" },
-  random_drive: { label: "Random Drive", icon: "D" },
-  bunking: { label: "Bunking", icon: "B" },
-  other: { label: "Other", icon: "*" },
+  hangout: { label: "Hangout", icon: "💬" },
+  party: { label: "Party", icon: "🍺" },
+  random_drive: { label: "Random Drive", icon: "🚗" },
+  bunking: { label: "Bunking", icon: "🏫" },
+  other: { label: "Other", icon: "?" },
 };
 
 function colorForUsername(username: string) {
@@ -87,18 +89,22 @@ function Picker({ onSelect }: { onSelect: (point: Point) => void }) {
   return null;
 }
 
-function RecenterMap({ currentLocation, fallbackPin }: { currentLocation: Point | null; fallbackPin: Pin | undefined }) {
+function FitMap({ pins, currentLocation, focusKey }: { pins: Pin[]; currentLocation: Point | null; focusKey: string }) {
   const map = useMap();
 
   useEffect(() => {
-    if (currentLocation) {
-      map.setView([currentLocation.latitude, currentLocation.longitude], Math.max(map.getZoom(), 14));
+    if (pins.length > 1) {
+      map.fitBounds(pins.map((pin) => [pin.latitude, pin.longitude]), { padding: [48, 48], maxZoom: 14 });
       return;
     }
-    if (fallbackPin) {
-      map.setView([fallbackPin.latitude, fallbackPin.longitude], map.getZoom());
+    if (pins.length === 1) {
+      map.setView([pins[0].latitude, pins[0].longitude], Math.max(map.getZoom(), 14));
+      return;
     }
-  }, [currentLocation, fallbackPin, map]);
+    if (currentLocation) {
+      map.setView([currentLocation.latitude, currentLocation.longitude], Math.max(map.getZoom(), 14));
+    }
+  }, [currentLocation, focusKey, map, pins]);
 
   return null;
 }
@@ -112,6 +118,9 @@ export default function DrinkMap({
   friends,
   currentUserId,
   onAddTags,
+  onRecordPinView,
+  onLoadPinViewers,
+  focusKey,
   mapTilerKey,
   darkMode,
 }: {
@@ -123,10 +132,16 @@ export default function DrinkMap({
   friends: Friend[];
   currentUserId: string;
   onAddTags: (pinId: string, participantIds: string[]) => Promise<void>;
+  onRecordPinView: (pinId: string) => Promise<void>;
+  onLoadPinViewers: (pinId: string) => Promise<{ viewers: PinViewer[]; expired: boolean }>;
+  focusKey: string;
   mapTilerKey: string;
   darkMode: boolean;
 }) {
   const [selectedTagIdsByPin, setSelectedTagIdsByPin] = useState<Record<string, string[]>>({});
+  const [visibleViewerPinId, setVisibleViewerPinId] = useState<string | null>(null);
+  const [viewerListsByPin, setViewerListsByPin] = useState<Record<string, { viewers: PinViewer[]; expired: boolean; error?: string }>>({});
+  const [loadingViewerPinId, setLoadingViewerPinId] = useState<string | null>(null);
   const center: LatLngExpression = currentLocation
     ? [currentLocation.latitude, currentLocation.longitude]
     : pins[0]
@@ -153,10 +168,31 @@ export default function DrinkMap({
     setSelectedTagIdsByPin((current) => ({ ...current, [pinId]: [] }));
   }
 
+  async function toggleViewers(pinId: string) {
+    if (visibleViewerPinId === pinId) {
+      setVisibleViewerPinId(null);
+      return;
+    }
+    setVisibleViewerPinId(pinId);
+    if (viewerListsByPin[pinId]) return;
+    setLoadingViewerPinId(pinId);
+    try {
+      const result = await onLoadPinViewers(pinId);
+      setViewerListsByPin((current) => ({ ...current, [pinId]: result }));
+    } catch (error) {
+      setViewerListsByPin((current) => ({
+        ...current,
+        [pinId]: { viewers: [], expired: false, error: error instanceof Error ? error.message : "Could not load viewers" },
+      }));
+    } finally {
+      setLoadingViewerPinId(null);
+    }
+  }
+
   return (
     <MapContainer center={center} zoom={13} className="h-full w-full" scrollWheelZoom>
       <TileLayer attribution='&copy; OpenStreetMap contributors &copy; MapTiler' url={tileUrl} />
-      <RecenterMap currentLocation={currentLocation} fallbackPin={pins[0]} />
+      <FitMap pins={pins} currentLocation={currentLocation} focusKey={focusKey} />
       <Picker onSelect={onSelect} />
       {currentLocation && (
         <Marker position={[currentLocation.latitude, currentLocation.longitude]} icon={defaultIcon}>
@@ -177,8 +213,10 @@ export default function DrinkMap({
         ]);
         const eligibleFriends = pin.creatorId === currentUserId ? friends.filter((friend) => !unavailableFriendIds.has(friend.id)) : [];
         const selectedTagIds = selectedTagIdsByPin[pin.id] ?? [];
+        const canSeeViewers = isWithinPinViewWindow(pin.createdAt) && (pin.creatorId === currentUserId || pin.participants.some((participant) => participant.id === currentUserId));
+        const viewerList = viewerListsByPin[pin.id];
         return (
-          <Marker key={pin.id} position={[pin.latitude, pin.longitude]} icon={initialIcon(pin)}>
+          <Marker key={pin.id} position={[pin.latitude, pin.longitude]} icon={initialIcon(pin)} eventHandlers={{ popupopen: () => void onRecordPinView(pin.id) }}>
             <Popup>
               <div className="w-48 text-slate-950">
                 {pin.photoUrl && <img src={pin.photoUrl} alt="Pin proof" className="mb-2 h-28 w-full rounded object-cover" />}
@@ -194,6 +232,27 @@ export default function DrinkMap({
                 )}
                 {pin.participants.length > 0 && <p className="mt-1 text-xs">With {pin.participants.map((p) => `@${p.username}`).join(", ")}</p>}
                 {(pin.pendingParticipants?.length ?? 0) > 0 && <p className="mt-1 text-xs text-amber-700">Pending {pin.pendingParticipants?.map((p) => `@${p.username}`).join(", ")}</p>}
+                {canSeeViewers && (
+                  <div className="mt-2 rounded border border-slate-200 bg-white/80 p-2">
+                    <button type="button" onClick={() => void toggleViewers(pin.id)} className="w-full rounded bg-indigo-50 px-2 py-1 text-xs font-black text-indigo-700">
+                      {visibleViewerPinId === pin.id ? "Hide viewers" : "Viewers"}
+                    </button>
+                    {visibleViewerPinId === pin.id && (
+                      <div className="mt-2 text-xs">
+                        {loadingViewerPinId === pin.id && <p className="font-semibold text-slate-500">Loading viewers...</p>}
+                        {viewerList?.error && <p className="font-semibold text-red-600">{viewerList.error}</p>}
+                        {viewerList?.expired && <p className="font-semibold text-slate-500">Viewer list expired.</p>}
+                        {viewerList && !viewerList.expired && !viewerList.error && (
+                          viewerList.viewers.length ? (
+                            <p className="font-semibold text-slate-700">{viewerList.viewers.map((viewer) => `@${viewer.username}`).join(", ")}</p>
+                          ) : (
+                            <p className="font-semibold text-slate-500">No friend views yet.</p>
+                          )
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
                 {pin.creatorId === currentUserId && (
                   <div className="mt-2 rounded border border-slate-200 bg-white/80 p-2">
                     <p className="text-xs font-black text-slate-700">Forgot someone?</p>

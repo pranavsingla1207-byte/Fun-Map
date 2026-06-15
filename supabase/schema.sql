@@ -93,6 +93,13 @@ create table if not exists pin_photos (
   created_at timestamptz not null default now()
 );
 
+create table if not exists drink_pin_views (
+  id uuid primary key default gen_random_uuid(),
+  pin_id uuid not null references drink_pins(id) on delete cascade,
+  viewer_id uuid not null references users(id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+
 create table if not exists payment_events (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references users(id) on delete cascade,
@@ -160,6 +167,7 @@ create index if not exists drink_pins_creator_created_idx on drink_pins(creator_
 create index if not exists friendships_friend_idx on friendships(friend_id);
 create index if not exists drink_pin_tag_requests_recipient_status_idx on drink_pin_tag_requests(recipient_id, status, created_at desc);
 create index if not exists drink_pin_tag_requests_pin_idx on drink_pin_tag_requests(pin_id);
+create index if not exists drink_pin_views_pin_created_idx on drink_pin_views(pin_id, created_at desc);
 create index if not exists forgotten_credit_ledger_user_idx on forgotten_credit_ledger(user_id, created_at desc);
 create unique index if not exists forgotten_credit_monthly_free_idx
   on forgotten_credit_ledger(user_id, period_month)

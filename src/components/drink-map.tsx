@@ -108,6 +108,7 @@ export default function DrinkMap({
   onSelect,
   onRemovePin,
   mapTilerKey,
+  darkMode,
 }: {
   pins: Pin[];
   selected: Point | null;
@@ -115,14 +116,16 @@ export default function DrinkMap({
   onSelect: (point: Point) => void;
   onRemovePin: (pinId: string) => void;
   mapTilerKey: string;
+  darkMode: boolean;
 }) {
   const center: LatLngExpression = currentLocation
     ? [currentLocation.latitude, currentLocation.longitude]
     : pins[0]
       ? [pins[0].latitude, pins[0].longitude]
       : [28.6139, 77.209];
+  const tileStyle = darkMode ? "streets-v2-dark" : "streets-v2";
   const tileUrl = mapTilerKey
-    ? `https://api.maptiler.com/maps/streets-v2/{z}/{x}/{y}.png?key=${mapTilerKey}`
+    ? `https://api.maptiler.com/maps/${tileStyle}/{z}/{x}/{y}.png?key=${mapTilerKey}`
     : "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 
   return (
@@ -143,7 +146,7 @@ export default function DrinkMap({
       {pins.map((pin) => (
         <Marker key={pin.id} position={[pin.latitude, pin.longitude]} icon={initialIcon(pin)}>
           <Popup>
-            <div className="w-48">
+            <div className="w-48 text-slate-950">
               {pin.photoUrl && <img src={pin.photoUrl} alt="Pin proof" className="mb-2 h-28 w-full rounded object-cover" />}
               <p className="font-bold">{pin.placeLabel || "Unnamed spot"}</p>
               <p className="text-xs text-slate-600">By @{pin.creatorUsername} - {pin.pinType}</p>

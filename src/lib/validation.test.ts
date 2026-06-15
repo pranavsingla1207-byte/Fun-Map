@@ -18,6 +18,19 @@ describe("validation", () => {
     expect(pin.activityType).toBe("party");
   });
 
+  it("accepts verified pin payloads with GPS accuracy", () => {
+    const pin = pinSchema.parse({
+      latitude: 12,
+      longitude: 77,
+      currentLatitude: 12,
+      currentLongitude: 77,
+      currentAccuracy: 45,
+      pinType: "verified",
+      participantIds: [],
+    });
+    expect(pin.currentAccuracy).toBe(45);
+  });
+
   it("rejects weak account payloads", () => {
     expect(() => authSchema.parse({ username: "ab", password: "short" })).toThrow();
   });

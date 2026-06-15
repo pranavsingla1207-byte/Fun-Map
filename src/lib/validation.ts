@@ -37,6 +37,7 @@ export const pinSchema = z.object({
   longitude: z.number().min(-180).max(180),
   currentLatitude: z.number().min(-90).max(90).optional(),
   currentLongitude: z.number().min(-180).max(180).optional(),
+  currentAccuracy: z.number().positive().max(100_000).optional(),
   placeLabel: z.string().trim().max(80).nullable().optional(),
   pinType: z.enum(["verified", "forgotten"]),
   activityType: z.enum(["hangout", "party", "random_drive", "bunking", "other"]).default("hangout"),

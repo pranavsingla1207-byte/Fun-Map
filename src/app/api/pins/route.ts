@@ -141,6 +141,17 @@ export async function GET() {
         const signed = await supabase.storage.from(config.profilePhotoBucket).createSignedUrl(creator.profile_photo_path, 60 * 10);
         creatorProfilePhotoUrl = signed.data?.signedUrl ?? null;
       }
+      const participants = await Promise.all((participantsByPinId.get(row.id) ?? [])
+        .filter((participantId) => participantId !== row.creator_id)
+        .map(async (participantId) => {
+          const participant = participantById.get(participantId);
+          let profilePhotoUrl = null;
+          if (participant?.profile_photo_path) {
+            const signed = await supabase.storage.from(config.profilePhotoBucket).createSignedUrl(participant.profile_photo_path, 60 * 10);
+            profilePhotoUrl = signed.data?.signedUrl ?? null;
+          }
+          return { id: participantId, username: participant?.username ?? "unknown", profilePhotoUrl };
+        }));
       return {
         id: row.id,
         creatorId: row.creator_id,
@@ -153,12 +164,7 @@ export async function GET() {
         activityType: row.activity_type,
         activityOtherLabel: row.activity_other_label,
         createdAt: row.created_at,
-        participants: (participantsByPinId.get(row.id) ?? [])
-          .filter((participantId) => participantId !== row.creator_id)
-          .map((participantId) => {
-            const participant = participantById.get(participantId);
-            return { id: participantId, username: participant?.username ?? "unknown" };
-          }),
+        participants,
         pendingParticipants: (pendingByPinId.get(row.id) ?? []).map((participantId) => {
           const participant = participantById.get(participantId);
           return { id: participantId, username: participant?.username ?? "unknown" };

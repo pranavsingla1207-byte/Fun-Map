@@ -4,7 +4,7 @@ import { DivIcon, Icon, LatLngExpression } from "leaflet";
 import { useEffect } from "react";
 import { MapContainer, Marker, Popup, TileLayer, useMap, useMapEvents } from "react-leaflet";
 
-type Friend = { id: string; username: string };
+type Friend = { id: string; username: string; profilePhotoUrl?: string | null };
 type Pin = {
   id: string;
   creatorUsername: string;
@@ -44,22 +44,32 @@ function colorForUsername(username: string) {
   return markerColors[sum % markerColors.length];
 }
 
-function initialIcon(pin: Pin) {
-  const username = pin.creatorUsername;
-  const initial = username.charAt(0).toUpperCase() || "?";
-  const color = colorForUsername(username);
-  const activity = activityMeta[pin.activityType] ?? activityMeta.hangout;
-  const avatarHtml = pin.creatorProfilePhotoUrl
-    ? `<img src="${pin.creatorProfilePhotoUrl}" alt="" style="width:100%;height:100%;border-radius:999px;object-fit:cover;" />`
+function avatarBubbleHtml(user: { username: string; profilePhotoUrl?: string | null }, index: number) {
+  const color = colorForUsername(user.username);
+  const initial = user.username.charAt(0).toUpperCase() || "?";
+  const content = user.profilePhotoUrl
+    ? `<img src="${user.profilePhotoUrl}" alt="" style="width:100%;height:100%;border-radius:999px;object-fit:cover;" />`
     : initial;
+  return `<div style="position:absolute;left:${index * 18}px;top:0;width:30px;height:30px;border-radius:999px;display:grid;place-items:center;background:${color};color:white;border:3px solid white;box-shadow:0 8px 18px rgba(15,23,42,.25);font:800 13px/1 system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;overflow:hidden;">${content}</div>`;
+}
+
+function initialIcon(pin: Pin) {
+  const activity = activityMeta[pin.activityType] ?? activityMeta.hangout;
+  const clusterUsers = [{ username: pin.creatorUsername, profilePhotoUrl: pin.creatorProfilePhotoUrl }, ...pin.participants].slice(0, 4);
+  const overflowCount = Math.max(0, pin.participants.length + 1 - clusterUsers.length);
+  const clusterWidth = Math.max(40, clusterUsers.length * 18 + 12 + (overflowCount ? 18 : 0));
+  const avatarsHtml = clusterUsers.map((person, index) => avatarBubbleHtml(person, index)).join("");
+  const overflowHtml = overflowCount
+    ? `<div style="position:absolute;left:${clusterUsers.length * 18}px;top:2px;width:26px;height:26px;border-radius:999px;display:grid;place-items:center;background:#111827;color:white;border:2px solid white;box-shadow:0 8px 18px rgba(15,23,42,.25);font:900 10px/1 system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">+${overflowCount}</div>`
+    : "";
   return new DivIcon({
     className: "",
-    html: `<div style="position:relative;width:40px;height:40px;">
-      <div style="width:34px;height:34px;border-radius:999px;display:grid;place-items:center;background:${color};color:white;border:3px solid white;box-shadow:0 8px 18px rgba(15,23,42,.25);font:800 15px/1 system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;overflow:hidden;">${avatarHtml}</div>
-      <div style="position:absolute;right:0;bottom:0;width:18px;height:18px;border-radius:999px;display:grid;place-items:center;background:#f59e0b;color:#111827;border:2px solid white;font:900 10px/1 system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">${activity.icon}</div>
+    html: `<div style="position:relative;width:${clusterWidth}px;height:42px;">
+      ${avatarsHtml}${overflowHtml}
+      <div style="position:absolute;left:${Math.max(18, clusterWidth - 22)}px;top:20px;width:18px;height:18px;border-radius:999px;display:grid;place-items:center;background:#f59e0b;color:#111827;border:2px solid white;font:900 10px/1 system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">${activity.icon}</div>
     </div>`,
-    iconSize: [40, 40],
-    iconAnchor: [17, 17],
+    iconSize: [clusterWidth, 42],
+    iconAnchor: [Math.min(24, clusterWidth / 2), 18],
   });
 }
 

@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import imageCompression from "browser-image-compression";
-import { Camera, Check, LogOut, MapPin, Moon, Plus, Sparkles, Sun, UserPlus, X } from "lucide-react";
+import { Beer, Camera, Car, Check, CircleHelp, LogOut, MapPin, MessageCircle, Moon, Plus, School, Sparkles, Sun, UserPlus, X, type LucideIcon } from "lucide-react";
 import { clsx } from "clsx";
 
 const DrinkMap = dynamic(() => import("@/components/drink-map"), {
@@ -49,6 +49,7 @@ type Pin = {
   photoUrl: string | null;
   creatorProfilePhotoUrl: string | null;
 };
+type PinViewer = { id: string; username: string };
 type SelectedPoint = { latitude: number; longitude: number };
 type ThemeMode = "system" | "light" | "dark";
 
@@ -67,12 +68,12 @@ declare global {
   }
 }
 
-const activities: { value: ActivityType; label: string; icon: string }[] = [
-  { value: "hangout", label: "Hangout", icon: "H" },
-  { value: "party", label: "Party", icon: "P" },
-  { value: "random_drive", label: "Random Drive", icon: "D" },
-  { value: "bunking", label: "Bunking", icon: "B" },
-  { value: "other", label: "Other", icon: "*" },
+const activities: { value: ActivityType; label: string; Icon: LucideIcon }[] = [
+  { value: "hangout", label: "Hangout", Icon: MessageCircle },
+  { value: "party", label: "Party", Icon: Beer },
+  { value: "random_drive", label: "Random Drive", Icon: Car },
+  { value: "bunking", label: "Bunking", Icon: School },
+  { value: "other", label: "Other", Icon: CircleHelp },
 ];
 
 const placeSearchTypes = ["poi", "address", "road", "place", "locality", "neighbourhood", "municipality"].join(",");
@@ -146,6 +147,7 @@ export default function Home() {
   const [placeSearchLoading, setPlaceSearchLoading] = useState(false);
   const [manualPinMode, setManualPinMode] = useState(false);
   const [paymentMessage, setPaymentMessage] = useState("");
+  const [activeFriendFilterId, setActiveFriendFilterId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const profilePhotoInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -153,6 +155,8 @@ export default function Home() {
   const pinLocation = pinType === "verified" ? currentLocation : selected;
   const canSubmitPin = Boolean(pinLocation) && photoDecisionMade && (pinType !== "forgotten" || forgottenRemaining > 0);
   const taggedFriends = useMemo(() => friends.filter((friend) => tagged.includes(friend.id)), [friends, tagged]);
+  const activeFriendFilter = useMemo(() => friends.find((friend) => friend.id === activeFriendFilterId) ?? null, [activeFriendFilterId, friends]);
+  const visiblePins = useMemo(() => activeFriendFilterId ? pins.filter((pin) => pin.creatorId === activeFriendFilterId) : pins, [activeFriendFilterId, pins]);
   const nextThemeLabel = isDarkTheme ? "Light" : "Dark";
 
   function toggleTheme() {
@@ -190,6 +194,7 @@ export default function Home() {
     ]);
     setMe(meData.user);
     setFriends(friendsData.friends);
+    setActiveFriendFilterId((current) => current && !friendsData.friends.some((friend) => friend.id === current) ? null : current);
     setRequests(friendsData.incomingRequests);
     setPins(pinsData.pins);
     setStats(statsData);
@@ -293,6 +298,7 @@ export default function Home() {
     setFriends([]);
     setRequests([]);
     setPinTagRequests([]);
+    setActiveFriendFilterId(null);
   }
 
   async function addFriend(event: FormEvent) {
@@ -357,6 +363,19 @@ export default function Home() {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function recordPinView(pinId: string) {
+    try {
+      await api<{ recorded: boolean }>("/api/pins/view", { method: "POST", body: JSON.stringify({ pinId }) });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "";
+      if (/database update|viewers/i.test(errorMessage)) setMessage(errorMessage);
+    }
+  }
+
+  async function loadPinViewers(pinId: string) {
+    return api<{ viewers: PinViewer[]; expired: boolean }>(`/api/pins/view?pinId=${encodeURIComponent(pinId)}`);
   }
 
   async function submitPin(event: FormEvent) {
@@ -657,9 +676,22 @@ export default function Home() {
       </header>
 
       <div className="mx-auto grid max-w-6xl gap-4 px-4 py-4 lg:grid-cols-[1fr_360px]">
-        <section className="map-frame h-[58vh] min-h-[420px] overflow-hidden lg:h-[calc(100vh-7rem)]">
+        <section className="map-frame relative h-[58vh] min-h-[420px] overflow-hidden lg:h-[calc(100vh-7rem)]">
+          {activeFriendFilter && (
+            <div className="absolute left-3 top-3 z-[900] flex max-w-[calc(100%-1.5rem)] flex-wrap items-center gap-2 rounded-md border border-white/60 bg-white/90 px-3 py-2 text-xs font-black text-slate-800 shadow-lg backdrop-blur">
+              <span>Showing @{activeFriendFilter.username}&apos;s pins</span>
+              <button type="button" onClick={() => setActiveFriendFilterId(null)} className="rounded bg-slate-950 px-2 py-1 text-white">
+                Clear
+              </button>
+            </div>
+          )}
+          {activeFriendFilter && visiblePins.length === 0 && (
+            <div className="absolute left-1/2 top-16 z-[900] w-[min(90%,22rem)] -translate-x-1/2 rounded-md border border-white/60 bg-white/90 px-4 py-3 text-center text-sm font-bold text-slate-700 shadow-lg backdrop-blur">
+              @{activeFriendFilter.username} has not created any visible pins yet.
+            </div>
+          )}
           <DrinkMap
-            pins={pins}
+            pins={visiblePins}
             selected={pinType === "forgotten" ? selected : null}
             currentLocation={currentLocation}
             onSelect={selectManualPoint}
@@ -667,6 +699,9 @@ export default function Home() {
             friends={friends}
             currentUserId={me.id}
             onAddTags={addTagsToPin}
+            onRecordPinView={recordPinView}
+            onLoadPinViewers={loadPinViewers}
+            focusKey={activeFriendFilterId ?? "all"}
             mapTilerKey={process.env.NEXT_PUBLIC_MAPTILER_API_KEY ?? ""}
             darkMode={isDarkTheme}
           />
@@ -736,9 +771,9 @@ export default function Home() {
                     type="button"
                     key={activity.value}
                     onClick={() => setActivityType(activity.value)}
-                    className={clsx("rounded-md border px-3 py-2 text-xs font-bold transition", activityType === activity.value ? "border-pink-500 bg-pink-500 text-white shadow-[0_4px_0_#9d174d]" : "border-slate-300 bg-white/60")}
+                    className={clsx("flex items-center justify-center gap-2 rounded-md border px-3 py-2 text-xs font-bold transition", activityType === activity.value ? "border-pink-500 bg-pink-500 text-white shadow-[0_4px_0_#9d174d]" : "border-slate-300 bg-white/60")}
                   >
-                    <span className="mr-1">{activity.icon}</span>{activity.label}
+                    <activity.Icon size={15} />{activity.label}
                   </button>
                 ))}
               </div>
@@ -844,7 +879,19 @@ export default function Home() {
                   </span>
                 </div>
               ))}
-              {friends.map((friend) => <p key={friend.id} className="soft-panel flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold">{avatar(friend, "h-7 w-7")} @{friend.username}</p>)}
+              {friends.map((friend) => (
+                <button
+                  key={friend.id}
+                  type="button"
+                  onClick={() => setActiveFriendFilterId((current) => current === friend.id ? null : friend.id)}
+                  className={clsx(
+                    "soft-panel flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-semibold transition",
+                    activeFriendFilterId === friend.id && "border-pink-400 bg-pink-100 text-pink-900",
+                  )}
+                >
+                  {avatar(friend, "h-7 w-7")} @{friend.username}
+                </button>
+              ))}
               {!friends.length && !requests.length && <p className="text-sm text-slate-500">No friends yet. Add one by username.</p>}
             </div>
           </section>
